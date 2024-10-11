@@ -4,21 +4,24 @@ set -x
 WORLD_SIZE=1
 RANK=0
 
-export HF_ENDPOINT=https://hf-mirror.com
+TOKENIZERS_PARALLELISM=false
 
-export WANDB_MODE=offline
+export HF_ENDPOINT=https://hf-mirror.com
 
 ulimit -n 65536
 
-CUDA_VISIBLE_DEVICES=0 /root/miniconda3/envs/mdm/bin/torchrun \
+CUDA_VISIBLE_DEVICES=0 torchrun \
     --nnodes=$WORLD_SIZE --node-rank=$RANK --nproc_per_node=1 \
     --master_port=11451 \
     main.py \
     model=1B \
     data=llamaGen \
-    data.cache_dir=/workspace/intern/liaomingxiang/ARG-MDM/datasets/cache \
-    wandb.name=mdlm-1B-llamaGen-600k-128 \
+    data.dataset_path=/workspace/intern/liaomingxiang/ARG-MDM/data/dataset_small  \
+    data.cache_dir=/workspace/intern/liaomingxiang/ARG-MDM/data/cache \
+    wandb.name=mdm-1B-llamaGen-70k \
+    data.size=70k \
     parameterization=subs \
+    mask_vocab_size=128 \
     model.length=256 \
     eval.compute_generative_perplexity=False \
     sampling.steps=1000 \

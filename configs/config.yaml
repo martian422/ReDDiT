@@ -88,8 +88,8 @@ trainer:
   limit_val_batches: 0.0     # validate on full dataset, can be used to toggle quick run
 
 wandb:
-  project: ARG-mdm-L
-  entity: matianren18
+  project: ARG-MDM
+  entity: ARG-MDM
   notes: Autoregressive Guidance for MDM
   group: null
   job_type: null
@@ -98,11 +98,10 @@ wandb:
   tags:
     - ${noise.type}
     - ${data.train}
-    - ${data.valid}
 
 hydra:
   run:
-    dir: ./outputs/${data.train}/${now:%Y.%m.%d}/${now:%H%M%S}
+    dir: ./outputs/${wandb.name}/${now:%Y.%m.%d}/${now:%H%M%S}
   job:
     chdir: true
 

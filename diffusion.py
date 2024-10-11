@@ -100,7 +100,7 @@ class Diffusion(L.LightningModule):
     def __init__(
         self,
         config,
-        tokenizer: transformers.PreTrainedTokenizer):
+        tokenizer):
         super().__init__()
         self.save_hyperparameters()
         self.config = config
@@ -116,7 +116,9 @@ class Diffusion(L.LightningModule):
         self.change_of_variables = self.config.training.change_of_variables
         self.parameterization = self.config.parameterization
         
-        self.lm = LlamaGen.from_pretrained(self.lm_name_or_path,config=lm_config).bfloat16()
+        self.lm = LlamaGen.from_pretrained(self.lm_name_or_path, config=lm_config).to(self.device).bfloat16()
+
+
 
         for p in self.lm.parameters():
             p.requires_grad = False
@@ -308,7 +310,7 @@ class Diffusion(L.LightningModule):
 
         text_embeds = torch.stack([F.pad(t[:PAD_MAX,:], (0, 0, max(PAD_MAX - t.size(0),0), 0)) for t in text_embeds])
         
-        text_embeds = self.lm.cls_embedding(text_embeds)
+        text_embeds = self.lm.cls_embedding(text_embeds.to(self.device))
         
         # attention_mask = (text_embeds[:,:,0]!=0) # bool
         attention_mask = (text_embeds[:,:,0]!=0).to(torch.int)

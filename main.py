@@ -224,7 +224,7 @@ def _train(config, logger, tokenizer):
     # _print_batch(train_ds, valid_ds, tokenizer)
 
     model = diffusion.Diffusion(
-        config, tokenizer=valid_ds.tokenizer)
+        config, tokenizer)
 
     trainer = hydra.utils.instantiate(
         config.trainer,

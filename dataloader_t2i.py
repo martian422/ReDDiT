@@ -12,21 +12,18 @@ import numpy as np
 LOGGER = utils.get_logger(__name__)
 
 from llamaGen.t5 import T5Embedder
+import torch.distributed as dist
 
 def get_dataset(
-    dataset_name, 
-    tokenizer, 
-    split='train',
-    image_token_dir='/workspace/intern/liaomingxiang/ARG-MDM/datasets/image_tokens/image_tokens_ds16_t2i_256',
-    cache_dir='/workspace/intern/liaomingxiang/ARG-MDM/datasets/cache', 
+    dataset_path, 
+    image_token_dir='/workspace/intern/liaomingxiang/ARG-MDM/image_tokens',
+    cache_dir='/workspace/intern/liaomingxiang/ARG-MDM/data/cache', 
     num_proc=len(os.sched_getaffinity(0)), 
     streaming=False,
 ):
-    if dataset_name == 'llamaGen':
-        data = datasets.load_from_disk("/workspace/intern/liaomingxiang/ARG-MDM/datasets/dataset_small")
-        # features: ['image_dir', 'text_embeds', 'image_tokens']
-    else:
-        raise ValueError(f"Unknown {dataset_name=}")
+
+    data = datasets.load_from_disk(dataset_path)
+
 
     def preprocess(text):
         return re.sub(r'<<.*?>>', '', text)
@@ -56,7 +53,7 @@ def get_dataset(
         tokenized_dataset = data.map(
             preprocess_and_tokenize,
             batched=False,
-            num_proc=1,
+            num_proc=num_proc,
             load_from_cache_file=True,
             desc='Tokenizing')
 
@@ -96,7 +93,11 @@ def get_tokenizer_old(config):
 def get_tokenizer(config):
 
     
-    device = f"cuda:{torch.cuda.current_device()}" if torch.cuda.is_available() else "cpu"
+    rank = dist.get_rank() if dist.is_initialized() else 0  # Default to 0 if not initialized
+
+    # Set the device for this process
+    device = f"cuda:{rank % torch.cuda.device_count()}" if torch.cuda.is_available() else "cpu"
+    print(f"Using device: {device}")
 
     precision = {'none': torch.float32, 'bf16': torch.bfloat16, 'fp16': torch.float16}[config.text_encoder.precision]
 
@@ -139,9 +140,7 @@ def get_dataloaders(
         train_set = None
     else:
         train_set = get_dataset(
-            config.data.train,
-            tokenizer,
-            split='train',
+            config.data.dataset_path, 
             image_token_dir=config.data.image_token_dir,
             cache_dir=config.data.cache_dir,
         )
@@ -150,9 +149,7 @@ def get_dataloaders(
         valid_set = None
     else:
         valid_set = get_dataset(
-            config.data.valid,
-            tokenizer,
-            split='train', ###
+            config.data.dataset_path, 
             cache_dir=config.data.cache_dir,
         )
 
