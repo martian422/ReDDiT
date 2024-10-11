@@ -90,7 +90,7 @@ trainer:
 wandb:
   project: ARG-MDM
   entity: ARG-MDM
-  notes: Autoregressive Guidance for MDM
+  notes: MDM with Autoregressive Guidance.
   group: null
   job_type: null
   name: null
