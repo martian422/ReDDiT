@@ -195,7 +195,7 @@ def _ppl_eval(config, logger, tokenizer):
     trainer.validate(model, valid_ds)
 
 
-def _train(config, logger, tokenizer):
+def _train(config, logger):
     logger.info('Starting Training.')
     wandb_logger = None
     if config.get('wandb', None) is not None:
@@ -218,13 +218,17 @@ def _train(config, logger, tokenizer):
             callbacks.append(hydra.utils.instantiate(callback))
 
     train_ds, valid_ds = dataloader.get_dataloaders(
-        config, tokenizer)
+        config)
     
-    # breakpoint()
-    # _print_batch(train_ds, valid_ds, tokenizer)
+    local_rank = int(os.getenv("LOCAL_RANK", 0))
+    device = torch.device(f'cuda:{local_rank}')
+    
 
-    model = diffusion.Diffusion(
-        config, tokenizer)
+    tokenizer = dataloader.get_tokenizer(config, device=device)
+    model = diffusion.Diffusion(config, tokenizer)
+
+    # print('the local rank is:', device)
+    # print('the tokenizer rank is:', model.tokenizer.model.device)
 
     trainer = hydra.utils.instantiate(
         config.trainer,
@@ -232,6 +236,8 @@ def _train(config, logger, tokenizer):
         callbacks=callbacks,
         strategy=hydra.utils.instantiate(config.strategy),
         logger=wandb_logger)
+
+
     trainer.fit(model, train_ds, valid_ds, ckpt_path=ckpt_path)
 
 
@@ -242,14 +248,14 @@ def main(config):
     _print_config(config, resolve=True, save_cfg=True)
     
     logger = utils.get_logger(__name__)
-    tokenizer = dataloader.get_tokenizer(config)
+    # tokenizer = dataloader.get_tokenizer(config)
 
     if config.mode == 'sample_eval':
-        generate_samples(config, logger, tokenizer)
+        generate_samples(config, logger)
     elif config.mode == 'ppl_eval':
-        _ppl_eval(config, logger, tokenizer)
+        _ppl_eval(config, logger)
     else:
-        _train(config, logger, tokenizer)
+        _train(config, logger)
 
 
 if __name__ == '__main__':

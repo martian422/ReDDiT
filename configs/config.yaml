@@ -5,7 +5,7 @@ defaults:
   - /model: small
   - /strategy: ddp
   - /noise: loglinear
-  - /lr_scheduler: constant_warmup
+  - /lr_scheduler: cosine_decay_warmup
 
 lm_name_or_path: /workspace/intern/liaomingxiang/ARG-MDM/pretrained_models_hf_t2i
 lm_vocab_size: 16384
@@ -81,7 +81,7 @@ trainer:
   gradient_clip_val: 1.0
   precision: 'bf16'
   num_sanity_val_steps: 2
-  max_steps: 1_000_000
+  max_steps: 20_000_0
   log_every_n_steps: 10
   reload_dataloaders_every_n_epochs: 1
   limit_train_batches: 1.0   # train on full dataset, can be used to toggle quick run

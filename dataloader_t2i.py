@@ -16,10 +16,10 @@ import torch.distributed as dist
 
 def get_dataset(
     dataset_path, 
-    image_token_dir='/workspace/intern/liaomingxiang/ARG-MDM/image_tokens',
+    image_token_dir,
     cache_dir='/workspace/intern/liaomingxiang/ARG-MDM/data/cache', 
     num_proc=len(os.sched_getaffinity(0)), 
-    streaming=False,
+    streaming=True,
 ):
 
     data = datasets.load_from_disk(dataset_path)
@@ -48,14 +48,10 @@ def get_dataset(
         tokenized_dataset = data.map(
             preprocess_and_tokenize,
             batched=False,
+            num_proc = num_proc,
             desc='Tokenizing')
     else:
-        tokenized_dataset = data.map(
-            preprocess_and_tokenize,
-            batched=False,
-            num_proc=num_proc,
-            load_from_cache_file=True,
-            desc='Tokenizing')
+        raise Exception
 
     return tokenized_dataset
 
@@ -90,14 +86,7 @@ def get_tokenizer_old(config):
     print(f'{tokenizer.chat_template=}')
     return tokenizer
 
-def get_tokenizer(config):
-
-    
-    rank = dist.get_rank() if dist.is_initialized() else 0  # Default to 0 if not initialized
-
-    # Set the device for this process
-    device = f"cuda:{rank % torch.cuda.device_count()}" if torch.cuda.is_available() else "cpu"
-    print(f"Using device: {device}")
+def get_tokenizer(config, device):
 
     precision = {'none': torch.float32, 'bf16': torch.bfloat16, 'fp16': torch.float16}[config.text_encoder.precision]
 
@@ -113,10 +102,9 @@ def get_tokenizer(config):
     return t5_xl
 
 def get_dataloaders(
-    config, 
-    tokenizer, 
+    config,  
     skip_train=False,
-    skip_valid=False, 
+    skip_valid=True, 
     valid_seed=None,
 ):
     num_gpus = torch.cuda.device_count()
@@ -150,6 +138,7 @@ def get_dataloaders(
     else:
         valid_set = get_dataset(
             config.data.dataset_path, 
+            image_token_dir=config.data.image_token_dir, 
             cache_dir=config.data.cache_dir,
         )
 
@@ -175,7 +164,6 @@ def get_dataloaders(
             collate_fn=collate_fn,
             drop_last=True,
             persistent_workers=True)
-        train_loader.tokenizer = tokenizer
     if skip_valid:
         valid_loader = None
     else:
@@ -194,7 +182,6 @@ def get_dataloaders(
             collate_fn=collate_fn,
             generator=generator)
         # Will be used in generative perplexity calculation
-        valid_loader.tokenizer = tokenizer
 
     return train_loader, valid_loader
 

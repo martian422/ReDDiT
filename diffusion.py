@@ -13,7 +13,7 @@ import torchmetrics
 import transformers
 from torch import Tensor
 
-import dataloader
+import dataloader_t2i as dataloader
 import models
 import noise_schedule
 import utils
@@ -105,7 +105,7 @@ class Diffusion(L.LightningModule):
         self.save_hyperparameters()
         self.config = config
 
-        self.tokenizer = tokenizer
+        
         self.vocab_size = self.config.lm_vocab_size + self.config.mask_vocab_size
         self.mask_index_range = (self.config.lm_vocab_size, self.vocab_size)
         self.sampler = self.config.sampling.predictor
@@ -116,9 +116,9 @@ class Diffusion(L.LightningModule):
         self.change_of_variables = self.config.training.change_of_variables
         self.parameterization = self.config.parameterization
         
-        self.lm = LlamaGen.from_pretrained(self.lm_name_or_path, config=lm_config).to(self.device).bfloat16()
+        self.lm = LlamaGen.from_pretrained(self.lm_name_or_path, config=lm_config).bfloat16()
 
-
+        self.tokenizer = tokenizer
 
         for p in self.lm.parameters():
             p.requires_grad = False
@@ -321,12 +321,10 @@ class Diffusion(L.LightningModule):
     
     def forward(self, input_ids, text_embeds, attention_mask, xt, indices, sigma):
         """Interact with LLM, returns log score."""
-
         # time1 = time.time()
+        # print('tokenizer device check:', self.tokenizer.model.device, "current lm cuda:", self.lm.device, "text embeds cuda:", text_embeds.device)
         sigma = self._process_sigma(sigma)
-        # breakpoint()
         # objectif
-        # FIXME: plant llamaGen here.
         # cat the text_embeds
         # input_ids: bs 256, text bs 120 1280, attentionmask for text, left-padding
         inputs_embeds = torch.cat([text_embeds,self.embed_tokens(input_ids)],dim=1)
@@ -364,12 +362,6 @@ class Diffusion(L.LightningModule):
 
         logits = self.backbone(logits, xt, sigma)
 
-        # time4 = time.time()
-        # time_small = time2 - time1
-        # time_big = time3 - time2
-        # dit_time = time4 - time3
-        # print(f"small time: {time_small}, big time: {time_big}, dit time: {dit_time}.")
-        # the logits will be normalized, unmasked tokens' logits will be set to one-hot.
         return self._subs_parameterization(logits=logits, xt=xt)
 
     def _d3pm_loss(self, model_output, xt, x0, t):

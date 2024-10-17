@@ -50,7 +50,6 @@ class T5Embedder:
                                 force_filename=filename, token=self.hf_token)
             tokenizer_path = cache_dir
 
-        print(tokenizer_path)
         self.tokenizer = AutoTokenizer.from_pretrained(tokenizer_path)
         self.model = T5EncoderModel.from_pretrained(path, **t5_model_kwargs).eval()
         self.model_max_length = model_max_length
@@ -68,15 +67,16 @@ class T5Embedder:
             return_tensors='pt'
         )
 
-        text_tokens_and_mask['input_ids'] = text_tokens_and_mask['input_ids']
-        text_tokens_and_mask['attention_mask'] = text_tokens_and_mask['attention_mask']
+        # minor changes here
+        input_ids = text_tokens_and_mask['input_ids'].to(self.device)
+        attention_mask = text_tokens_and_mask['attention_mask'].to(self.device)
 
         with torch.no_grad():
             text_encoder_embs = self.model(
-                input_ids=text_tokens_and_mask['input_ids'].to(self.device),
-                attention_mask=text_tokens_and_mask['attention_mask'].to(self.device),
+                input_ids=input_ids,
+                attention_mask=attention_mask,
             )['last_hidden_state'].detach()
-        return text_encoder_embs, text_tokens_and_mask['attention_mask'].to(self.device)
+        return text_encoder_embs, attention_mask
 
     def text_preprocessing(self, text):
         if self.use_text_preprocessing:
