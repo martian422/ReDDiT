@@ -81,7 +81,7 @@ trainer:
   gradient_clip_val: 1.0
   precision: 'bf16'
   num_sanity_val_steps: 2
-  max_steps: 20_000_0
+  max_steps: 40_000_0
   log_every_n_steps: 10
   reload_dataloaders_every_n_epochs: 1
   limit_train_batches: 1.0   # train on full dataset, can be used to toggle quick run
