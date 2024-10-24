@@ -1,6 +1,7 @@
 train: llamaGen
 valid: llamaGen
 dataset_path: /workspace/intern/liaomingxiang/ARG-MDM/data/dataset_small
+val_dataset_path: /workspace/intern/liaomingxiang/ARG-MDM/data/dataset_small
 tokenizer_name_or_path: None
 cache_dir: /workspace/intern/liaomingxiang/ARG-MDM/data/cache
 streaming: True

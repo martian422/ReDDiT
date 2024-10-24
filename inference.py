@@ -46,66 +46,70 @@ def generate_samples(config, logger, tokenizer):
     model.backbone.eval()
     model.noise.eval()
     batch_size_per_gpu = model.config.loader.eval_batch_size
-    num_steps = model.config.sampling.steps
-    timesteps = torch.linspace(1, eps, num_steps + 1, device=model.device)
-    x = model._sample_prior_XX(batch_size_per_gpu, model.config.model.length).to(model.device)
-    # x.shape= bs 256
-    dt = (1 - eps) / num_steps
-    p_x0_cache = None
+    # for i in [10,20,30,40,50,60,70,80,90,100]:
+    for i in [2,4,6,8,10,12,14,16,18,20,22,24]:
+        num_steps = i
+        timesteps = torch.linspace(1, eps, num_steps + 1, device=model.device)
+        x = model._sample_prior_XX(batch_size_per_gpu, model.config.model.length).to(model.device)
+        # x.shape= bs 256
+        dt = (1 - eps) / num_steps
+        p_x0_cache = None
 
-    input_ids = x.clone()
-    import numpy as np
-    import torch.nn.functional as F
-    PAD_MAX=model.lm.cls_token_num
-    text_desc = 'A white dog is lying on the ground next to a blue bicycle parked on the side of a cobblestone street. The street is lined with buildings and has a few pedestrians walking in the distance.'
-    caption_embs, emb_masks = tokenizer.get_text_embeddings([text_desc])
-    text_embeds = [caption_embs[t][:emb_masks[t].sum(),:] for t in range(caption_embs.shape[0])]
-    text_embeds = text_embeds[0].unsqueeze(0)
-    text_embeds = F.pad(text_embeds, (0, 0, PAD_MAX-text_embeds.shape[1], 0))
+        input_ids = x.clone()
+        import numpy as np
+        import torch.nn.functional as F
+        PAD_MAX=model.lm.cls_token_num
+        text_desc = model.config.sampling.input_str
+        caption_embs, emb_masks = tokenizer.get_text_embeddings([text_desc])
+        text_embeds = [caption_embs[t][:emb_masks[t].sum(),:] for t in range(caption_embs.shape[0])]
+        text_embeds = text_embeds[0].unsqueeze(0)
+        text_embeds = F.pad(text_embeds, (0, 0, PAD_MAX-text_embeds.shape[1], 0))
 
-    text_embeds = model.lm.cls_embedding(text_embeds)
+        text_embeds = model.lm.cls_embedding(text_embeds)
+        
+        attention_mask = (text_embeds[:,:,0]!=0).to(torch.int)
+        
+        indices = torch.arange(input_ids.shape[1],device = input_ids.device).repeat(input_ids.shape[0],1)
+
+        intermediate = []
+        for i in range(num_steps):
+            t = timesteps[i] * torch.ones(
+                x.shape[0], 1, device=model.device)
+            if model.sampler == 'ddpm':
+                x = model._ddpm_update_XX(input_ids, indices, x, t, dt)
+            elif model.sampler == 'ddpm_cache':
+                p_x0_cache, x_next = model._ddpm_caching_update_XX(
+                    input_ids, text_embeds, attention_mask, indices, x, t, dt, p_x0=p_x0_cache)
+                if (not torch.allclose(x_next, x)
+                        or model.time_conditioning):
+                    # Disable caching
+                    p_x0_cache = None
+                x = x_next
+            else:
+                raise ValueError
+            if model.config.sampling.return_intermediate > 0 and (i + 1) % model.config.sampling.return_intermediate == 0:
+                intermediate.append(x)
+
+        if model.config.sampling.noise_removal:
+            t = timesteps[-1] * torch.ones(x.shape[0], 1, device=model.device)
+            unet_conditioning = model.noise(t)[0]
+            input_ids.scatter_(1, indices, x)
+            x = model.forward(
+                input_ids, text_embeds, attention_mask, x, indices, unet_conditioning).argmax(dim=-1)
     
-    attention_mask = (text_embeds[:,:,0]!=0).to(torch.int)
-    
-    indices = torch.arange(input_ids.shape[1],device = input_ids.device).repeat(input_ids.shape[0],1)
+        torch.save(x,f'/workspace/intern/liaomingxiang/ARG-MDM/MDM-1010/outputs/denoised_tensors/s24/s24-coach_s{num_steps}.pt')
+        print(f'Tensor at {num_steps} steps saved.')
 
-    intermediate = []
-    for i in range(num_steps):
-        t = timesteps[i] * torch.ones(
-            x.shape[0], 1, device=model.device)
-        if model.sampler == 'ddpm':
-            x = model._ddpm_update_XX(input_ids, indices, x, t, dt)
-        elif model.sampler == 'ddpm_cache':
-            p_x0_cache, x_next = model._ddpm_caching_update_XX(
-                input_ids, text_embeds, attention_mask, indices, x, t, dt, p_x0=p_x0_cache)
-            if (not torch.allclose(x_next, x)
-                    or model.time_conditioning):
-                # Disable caching
-                p_x0_cache = None
-            x = x_next
-        else:
-            raise ValueError
-        if model.config.sampling.return_intermediate > 0 and (i + 1) % model.config.sampling.return_intermediate == 0:
-            intermediate.append(x)
+    return 0
 
-    if model.config.sampling.noise_removal:
-        t = timesteps[-1] * torch.ones(x.shape[0], 1, device=model.device)
-        unet_conditioning = model.noise(t)[0]
-        input_ids.scatter_(1, indices, x)
-        x = model.forward(
-            input_ids, text_embeds, attention_mask, x, indices, unet_conditioning).argmax(dim=-1)
-  
-    torch.save(x,'./outputs/denoised_tensors/dog_new.pt')
-    print('Tensor saved.')
-
-    return x, intermediate
-
-@hydra.main(version_base=None, config_path='configs', config_name='config_run')
+@hydra.main(version_base=None, config_path='configs', config_name='config')
 def main(config):
     """Main entry point for training."""
     L.seed_everything(config.seed)
     logger = utils.get_logger(__name__)
-    tokenizer = dataloader.get_tokenizer(config)
+    local_rank = int(os.getenv("LOCAL_RANK", 0))
+    device = torch.device(f'cuda:{local_rank}')
+    tokenizer = dataloader.get_tokenizer(config,device=device)
 
     generate_samples(config, logger, tokenizer)
 

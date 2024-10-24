@@ -433,6 +433,7 @@ class Diffusion(L.LightningModule):
         return self._compute_loss_XX(batch, prefix='val')
 
     def on_validation_epoch_end(self):
+        ## FIXME MDM modifying
         if ((self.config.eval.compute_perplexity_on_sanity
                  or not self.trainer.sanity_checking)
                  and self.config.eval.generate_samples

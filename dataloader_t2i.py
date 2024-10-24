@@ -41,7 +41,7 @@ def get_dataset(
         try:
             image_tokens = np.load(image_file)
         except:
-            print(image_file)
+            image_tokens = np.load('/workspace/intern/liaomingxiang/ARG-MDM/laion-coco/01889/018890002-img.npy') ## FIXME
         return dict(text=example['text'], image_tokens=image_tokens)
 
     if streaming:
@@ -137,7 +137,7 @@ def get_dataloaders(
         valid_set = None
     else:
         valid_set = get_dataset(
-            config.data.dataset_path, 
+            config.data.val_dataset_path, 
             image_token_dir=config.data.image_token_dir, 
             cache_dir=config.data.cache_dir,
         )

@@ -39,7 +39,7 @@ loader:
 sampling:
   input_str: "A robe takes 2 bolts of blue fiber and half that much white fiber. How many bolts in total does it take?"
   predictor: ddpm_cache  # analytic, ddpm, ddpm_cache
-  steps: 128
+  steps: 100
   noise_removal: True
   return_intermediate: 0
   # TODO(yair): @subham, why aren't these params under `eval`?
