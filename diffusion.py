@@ -309,10 +309,13 @@ class Diffusion(L.LightningModule):
         PAD_MAX=self.lm.cls_token_num # no longer than AR model's max t2i text length
 
         text_embeds = torch.stack([F.pad(t[:PAD_MAX,:], (0, 0, max(PAD_MAX - t.size(0),0), 0)) for t in text_embeds])
+
+        if self.config.batch_drop_out > 0:
+            drop_ids = torch.rand(text_embeds.shape[0], device=text_embeds.device) < self.config.batch_drop_out
+            text_embeds = torch.where(drop_ids[:, None, None], self.lm.cls_embedding.uncond_embedding, text_embeds)
         
         text_embeds = self.lm.cls_embedding(text_embeds.to(self.device))
-        
-        # attention_mask = (text_embeds[:,:,0]!=0) # bool
+
         attention_mask = (text_embeds[:,:,0]!=0).to(torch.int)
         
         # indices = (PAD_MAX + torch.arange(block_length, device=text_embeds.device)).repeat(2,1)
@@ -358,7 +361,6 @@ class Diffusion(L.LightningModule):
             text_embeds.shape[1],inputs_embeds.shape[1]).repeat(input_ids.shape[0],1).to(logits.device)
         logits = logits.gather(1, (new_indices - 1)[:, :, None].expand(-1, -1, logits.shape[2])) 
         # denoise the logits
-        # time3 = time.time()
 
         logits = self.backbone(logits, xt, sigma)
 
@@ -517,10 +519,13 @@ class Diffusion(L.LightningModule):
         move_chance_t = t[:, None, None]
         move_chance_s = (t - dt)[:, None, None]
         assert move_chance_t.ndim == 3, move_chance_t.shape
+        text_embeds_null = torch.zeros_like(text_embeds) + self.lm.cls_embedding.cap_proj(self.lm.cls_embedding.uncond_embedding)
         if p_x0 is None:
             input_ids.scatter_(1, indices, x)
-            p_x0 = self.forward(input_ids, text_embeds, attention_mask, x, indices, sigma_t).exp()
-        
+            p_x0_cond = self.forward(input_ids, text_embeds, attention_mask, x, indices, sigma_t)
+            p_x0_uncond = self.forward(input_ids, text_embeds_null, attention_mask, x, indices, sigma_t)
+            p_x0 = (p_x0_uncond + self.config.generation_cfg * (p_x0_cond - p_x0_uncond)).exp()
+            
         assert move_chance_t.ndim == p_x0.ndim
 
         one_hot_x = move_chance_s[:, :, 0, None] * F.one_hot(x, num_classes=p_x0.shape[2]) #
@@ -577,7 +582,6 @@ class Diffusion(L.LightningModule):
     def _forward_pass_diffusion_XX(self, input_ids, text_embeds, attention_mask):
         
         # x0 = input_ids.gather(1, indices)
-        # breakpoint()
         indices = torch.arange(input_ids.shape[1],device = input_ids.device).repeat(input_ids.shape[0],1)
         x0 = input_ids.clone()
         t = self._sample_t_XX(x0.shape[0], x0.device) # bs
@@ -599,7 +603,6 @@ class Diffusion(L.LightningModule):
             move_chance = 1 - torch.exp(-sigma[:, None])
 
         xt = self.q_xt(x0, move_chance)
-        # breakpoint()
         input_ids.scatter_(1, indices, xt) 
 
         model_output = self.forward(

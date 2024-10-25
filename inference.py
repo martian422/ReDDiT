@@ -46,8 +46,8 @@ def generate_samples(config, logger, tokenizer):
     model.backbone.eval()
     model.noise.eval()
     batch_size_per_gpu = model.config.loader.eval_batch_size
-    # for i in [10,20,30,40,50,60,70,80,90,100]:
-    for i in [2,4,6,8,10,12,14,16,18,20,22,24]:
+    for i in [10,20,30,40,50,60,70,80,90,100]:
+    # for i in [2,4,6,8,10,12,14,16,18,20,22,24]:
         num_steps = i
         timesteps = torch.linspace(1, eps, num_steps + 1, device=model.device)
         x = model._sample_prior_XX(batch_size_per_gpu, model.config.model.length).to(model.device)
@@ -96,8 +96,7 @@ def generate_samples(config, logger, tokenizer):
             input_ids.scatter_(1, indices, x)
             x = model.forward(
                 input_ids, text_embeds, attention_mask, x, indices, unet_conditioning).argmax(dim=-1)
-    
-        torch.save(x,f'/workspace/intern/liaomingxiang/ARG-MDM/MDM-1010/outputs/denoised_tensors/s24/s24-coach_s{num_steps}.pt')
+        torch.save(x,f'/workspace/intern/liaomingxiang/ARG-MDM/MDM-1010/outputs/denoised_tensors/cfg/cfg5-woman_s{num_steps}.pt')
         print(f'Tensor at {num_steps} steps saved.')
 
     return 0

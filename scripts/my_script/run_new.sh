@@ -2,8 +2,8 @@ TOKENIZERS_PARALLELISM=false
 
 export WANDB_DISABLED=true
 
-MODEL_PATH=/workspace/intern/liaomingxiang/ARG-MDM/MDM-1010/outputs/mdm-1B-coco-5M-m1024-s24-bs512/2024.10.21/214430/checkpoints/5-50000.ckpt
-TEXT_PROMPT="The coach small wrist bag is in pink."
+MODEL_PATH=/workspace/intern/liaomingxiang/ARG-MDM/MDM-1010/outputs/mdm-1B-coco-5M-m1024-s100-bs512/2024.10.22/222030/checkpoints/4-40000.ckpt
+TEXT_PROMPT="A woman in floral dress and denim jacket walking down the street."
 
 CUDA_VISIBLE_DEVICES=1 python inference.py \
     mode=sample_eval \
@@ -12,6 +12,7 @@ CUDA_VISIBLE_DEVICES=1 python inference.py \
     backbone=dit \
     data=llamaGen \
     mask_vocab_size=1024 \
+    generation_cfg=5 \
     loader.eval_batch_size=1 \
     eval.checkpoint_path=$MODEL_PATH \
     eval.compute_generative_perplexity=False \
