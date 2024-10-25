@@ -330,11 +330,14 @@ class Diffusion(L.LightningModule):
         # objectif
         # cat the text_embeds
         # input_ids: bs 256, text bs 120 1280, attentionmask for text, left-padding
-        inputs_embeds_cond = torch.cat([text_embeds,self.embed_tokens(input_ids)],dim=1)
-        # text_embeds_null = torch.zeros_like(text_embeds) + self.lm.cls_embedding.cap_proj(self.lm.cls_embedding.uncond_embedding)
-        inputs_embeds_null = torch.cat([torch.zeros_like(text_embeds) + self.lm.cls_embedding.cap_proj(self.lm.cls_embedding.uncond_embedding), self.embed_tokens(input_ids)],dim=1)
-        inputs_embeds = torch.cat([inputs_embeds_cond,inputs_embeds_null], dim=0)
-        mask = F.pad(attention_mask, (0, input_ids.shape[1], 0, 0),value=1).repeat(2,1).to(inputs_embeds.device)
+        if self.config.ar_cfg:
+            inputs_embeds_cond = torch.cat([text_embeds,self.embed_tokens(input_ids)],dim=1)
+            inputs_embeds_null = torch.cat([torch.zeros_like(text_embeds) + self.lm.cls_embedding.cap_proj(self.lm.cls_embedding.uncond_embedding), self.embed_tokens(input_ids)],dim=1)
+            inputs_embeds = torch.cat([inputs_embeds_cond,inputs_embeds_null], dim=0)
+            mask = F.pad(attention_mask, (0, input_ids.shape[1], 0, 0),value=1).repeat(2,1).to(inputs_embeds.device)
+        else:
+            inputs_embeds = torch.cat([text_embeds,self.embed_tokens(input_ids)],dim=1)
+            mask = F.pad(attention_mask, (0, input_ids.shape[1], 0, 0),value=1).to(inputs_embeds.device)
         with torch.device(self.lm.device):
             self.lm.setup_caches(
                 max_batch_size=inputs_embeds.shape[0], 
@@ -357,17 +360,18 @@ class Diffusion(L.LightningModule):
             mask = mask
         ) 
         ## here, the cfg helps improve the AR model prediction.
-        cond_logits, uncond_logits = torch.split(logits_combine, logits_combine.shape[0] // 2, dim=0)
-        # FIXME: take care of the mask! now: 
-        #the indices are now useful!
-        logits = uncond_logits + self.config.generation_cfg * (cond_logits - uncond_logits)
+        if self.config.ar_cfg:
+            cond_logits, uncond_logits = torch.split(logits_combine, logits_combine.shape[0] // 2, dim=0)
+            #the indices are now useful!
+            logits = uncond_logits + self.config.generation_cfg * (cond_logits - uncond_logits)
+        else:
+            logits = logits_combine
         # for each batch, gather the logits on target(indices) spot.
         new_indices = torch.arange(
             text_embeds.shape[1],inputs_embeds.shape[1]).repeat(input_ids.shape[0],1).to(logits.device)
         logits = logits.gather(1, (new_indices - 1)[:, :, None].expand(-1, -1, logits.shape[2])) 
-        # denoise the logits
 
-        # as we add a 0.1 dropout here, you shall use cfg on backbone's prediction during inference.
+        # FIXME:as we add a 0.1 dropout during training, you shall use cfg on backbone's prediction during inference.
         logits = self.backbone(logits, xt, sigma) 
 
         return self._subs_parameterization(logits=logits, xt=xt)
@@ -525,12 +529,15 @@ class Diffusion(L.LightningModule):
         move_chance_t = t[:, None, None]
         move_chance_s = (t - dt)[:, None, None]
         assert move_chance_t.ndim == 3, move_chance_t.shape
-        # text_embeds_null = torch.zeros_like(text_embeds) + self.lm.cls_embedding.cap_proj(self.lm.cls_embedding.uncond_embedding)
+        text_embeds_null = torch.zeros_like(text_embeds) + self.lm.cls_embedding.cap_proj(self.lm.cls_embedding.uncond_embedding)
         if p_x0 is None:
             input_ids.scatter_(1, indices, x)
-            p_x0 = self.forward(input_ids, text_embeds, attention_mask, x, indices, sigma_t)
-            # p_x0_uncond = self.forward(input_ids, text_embeds_null, attention_mask, x, indices, sigma_t)
-            # p_x0 = (p_x0_uncond + self.config.generation_cfg * (p_x0_cond - p_x0_uncond)).exp()
+            if self.config.ar_cfg:
+                p_x0 = self.forward(input_ids, text_embeds, attention_mask, x, indices, sigma_t).exp()
+            else:
+                p_x0_cond = self.forward(input_ids, text_embeds, attention_mask, x, indices, sigma_t)
+                p_x0_uncond = self.forward(input_ids, text_embeds_null, attention_mask, x, indices, sigma_t)
+                p_x0 = (p_x0_uncond + self.config.generation_cfg * (p_x0_cond - p_x0_uncond)).exp()
             
         assert move_chance_t.ndim == p_x0.ndim
 
