@@ -10,7 +10,7 @@ defaults:
 lm_name_or_path: /workspace/intern/liaomingxiang/ARG-MDM/pretrained_models_hf_t2i
 lm_vocab_size: 16384
 mask_vocab_size: 128
-ar_cfg: True
+ar_cfg: False
 generation_cfg: 3.0
 batch_drop_out: 0.1
 

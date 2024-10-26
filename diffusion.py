@@ -311,6 +311,7 @@ class Diffusion(L.LightningModule):
         text_embeds = torch.stack([F.pad(t[:PAD_MAX,:], (0, 0, max(PAD_MAX - t.size(0),0), 0)) for t in text_embeds])
 
         if self.config.batch_drop_out > 0:
+            # for cfg perhaps.
             drop_ids = torch.rand(text_embeds.shape[0], device=text_embeds.device) < self.config.batch_drop_out
             text_embeds = torch.where(drop_ids[:, None, None], self.lm.cls_embedding.uncond_embedding, text_embeds)
         
@@ -325,20 +326,22 @@ class Diffusion(L.LightningModule):
     def forward(self, input_ids, text_embeds, attention_mask, xt, indices, sigma):
         """Interact with LLM, returns log score. Adds classifier-free guidance."""
         # time1 = time.time()
-        # print('tokenizer device check:', self.tokenizer.model.device, "current lm cuda:", self.lm.device, "text embeds cuda:", text_embeds.device)
         sigma = self._process_sigma(sigma)
         # objectif
         # cat the text_embeds
         # input_ids: bs 256, text bs 120 1280, attentionmask for text, left-padding
         # FIXME: ar_cfg comsumes too much memory!!
-        if self.config.ar_cfg:
-            inputs_embeds_cond = torch.cat([text_embeds,self.embed_tokens(input_ids)],dim=1)
-            inputs_embeds_null = torch.cat([torch.zeros_like(text_embeds) + self.lm.cls_embedding.cap_proj(self.lm.cls_embedding.uncond_embedding), self.embed_tokens(input_ids)],dim=1)
-            inputs_embeds = torch.cat([inputs_embeds_cond,inputs_embeds_null], dim=0)
-            mask = F.pad(attention_mask, (0, input_ids.shape[1], 0, 0),value=1).repeat(2,1).to(inputs_embeds.device)
-        else:
-            inputs_embeds = torch.cat([text_embeds,self.embed_tokens(input_ids)],dim=1)
-            mask = F.pad(attention_mask, (0, input_ids.shape[1], 0, 0),value=1)
+        # if self.config.ar_cfg:
+        #     inputs_embeds_cond = torch.cat([text_embeds,self.embed_tokens(input_ids)],dim=1)
+        #     inputs_embeds_null = torch.cat([torch.zeros_like(text_embeds) + self.lm.cls_embedding.cap_proj(self.lm.cls_embedding.uncond_embedding), self.embed_tokens(input_ids)],dim=1)
+        #     inputs_embeds = torch.cat([inputs_embeds_cond,inputs_embeds_null], dim=0)
+        #     mask = F.pad(attention_mask, (0, input_ids.shape[1], 0, 0),value=1).repeat(2,1).to(inputs_embeds.device)
+        # else:
+        #     inputs_embeds = torch.cat([text_embeds,self.embed_tokens(input_ids)],dim=1)
+        #     mask = F.pad(attention_mask, (0, input_ids.shape[1], 0, 0),value=1)
+
+        inputs_embeds = torch.cat([text_embeds,self.embed_tokens(input_ids)],dim=1)
+        mask = F.pad(attention_mask, (0, input_ids.shape[1], 0, 0),value=1)
 
         with torch.device(self.lm.device):
             self.lm.setup_caches(
@@ -356,24 +359,24 @@ class Diffusion(L.LightningModule):
         # causal_mask = [[I, 0], [0, Causal]] , I for the pad tokens.
         # time2 = time.time()
 
-        logits_combine, _ = self.lm(
+        logits, _ = self.lm(
             input_ids=None,
             inputs_embeds=inputs_embeds,
             mask = mask
         ) 
-        ## here, the cfg helps improve the AR model prediction.
-        if self.config.ar_cfg:
-            cond_logits, uncond_logits = torch.split(logits_combine, logits_combine.shape[0] // 2, dim=0)
-            #the indices are now useful!
-            logits = uncond_logits + self.config.generation_cfg * (cond_logits - uncond_logits)
-        else:
-            logits = logits_combine
+        # FIXME:here, the cfg may helps improve the AR model prediction, yet CURRENTLY USELESS!
+        # if self.config.ar_cfg:
+        #     cond_logits, uncond_logits = torch.split(logits_combine, logits_combine.shape[0] // 2, dim=0)
+        #     #the indices are now useful!
+        #     logits = uncond_logits + self.config.generation_cfg * (cond_logits - uncond_logits)
+        # else:
+        #     logits = logits_combine
         # for each batch, gather the logits on target(indices) spot.
         new_indices = torch.arange(
             text_embeds.shape[1],inputs_embeds.shape[1]).repeat(input_ids.shape[0],1).to(logits.device)
         logits = logits.gather(1, (new_indices - 1)[:, :, None].expand(-1, -1, logits.shape[2])) 
 
-        # FIXME:as we add a 0.1 dropout during training, you may use cfg on backbone's prediction during inference.
+        # As we add a 0.1 dropout during training, you may use cfg on logits' prediction during inference.
         logits = self.backbone(logits, xt, sigma) 
 
         return self._subs_parameterization(logits=logits, xt=xt)
@@ -534,14 +537,18 @@ class Diffusion(L.LightningModule):
         
         if p_x0 is None:
             input_ids.scatter_(1, indices, x)
-            if self.config.ar_cfg:
-                p_x0 = self.forward(input_ids, text_embeds, attention_mask, x, indices, sigma_t).exp()
-            else:
-                text_embeds_null = torch.zeros_like(text_embeds) + self.lm.cls_embedding.cap_proj(self.lm.cls_embedding.uncond_embedding)
-                p_x0_cond = self.forward(input_ids, text_embeds, attention_mask, x, indices, sigma_t)
-                p_x0_uncond = self.forward(input_ids, text_embeds_null, attention_mask, x, indices, sigma_t)
-                p_x0 = (p_x0_uncond + self.config.generation_cfg * (p_x0_cond - p_x0_uncond)).exp()
-            
+            # if self.config.ar_cfg:
+            #     p_x0 = self.forward(input_ids, text_embeds, attention_mask, x, indices, sigma_t).exp()
+            # else:
+            #     text_embeds_null = torch.zeros_like(text_embeds) + self.lm.cls_embedding.cap_proj(self.lm.cls_embedding.uncond_embedding)
+            #     p_x0_cond = self.forward(input_ids, text_embeds, attention_mask, x, indices, sigma_t)
+            #     p_x0_uncond = self.forward(input_ids, text_embeds_null, attention_mask, x, indices, sigma_t)
+            #     p_x0 = (p_x0_uncond + self.config.generation_cfg * (p_x0_cond - p_x0_uncond)).exp()
+            text_embeds_null = torch.zeros_like(text_embeds) + self.lm.cls_embedding.cap_proj(self.lm.cls_embedding.uncond_embedding)
+            p_x0_cond = self.forward(input_ids, text_embeds, attention_mask, x, indices, sigma_t)
+            p_x0_uncond = self.forward(input_ids, text_embeds_null, attention_mask, x, indices, sigma_t)
+            p_x0 = (p_x0_uncond + self.config.generation_cfg * (p_x0_cond - p_x0_uncond)).exp()
+
         assert move_chance_t.ndim == p_x0.ndim
 
         one_hot_x = move_chance_s[:, :, 0, None] * F.one_hot(x, num_classes=p_x0.shape[2]) #
