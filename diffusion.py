@@ -330,6 +330,7 @@ class Diffusion(L.LightningModule):
         # objectif
         # cat the text_embeds
         # input_ids: bs 256, text bs 120 1280, attentionmask for text, left-padding
+        # FIXME: ar_cfg comsumes too much memory!!
         if self.config.ar_cfg:
             inputs_embeds_cond = torch.cat([text_embeds,self.embed_tokens(input_ids)],dim=1)
             inputs_embeds_null = torch.cat([torch.zeros_like(text_embeds) + self.lm.cls_embedding.cap_proj(self.lm.cls_embedding.uncond_embedding), self.embed_tokens(input_ids)],dim=1)
@@ -337,7 +338,8 @@ class Diffusion(L.LightningModule):
             mask = F.pad(attention_mask, (0, input_ids.shape[1], 0, 0),value=1).repeat(2,1).to(inputs_embeds.device)
         else:
             inputs_embeds = torch.cat([text_embeds,self.embed_tokens(input_ids)],dim=1)
-            mask = F.pad(attention_mask, (0, input_ids.shape[1], 0, 0),value=1).to(inputs_embeds.device)
+            mask = F.pad(attention_mask, (0, input_ids.shape[1], 0, 0),value=1)
+
         with torch.device(self.lm.device):
             self.lm.setup_caches(
                 max_batch_size=inputs_embeds.shape[0], 
@@ -371,7 +373,7 @@ class Diffusion(L.LightningModule):
             text_embeds.shape[1],inputs_embeds.shape[1]).repeat(input_ids.shape[0],1).to(logits.device)
         logits = logits.gather(1, (new_indices - 1)[:, :, None].expand(-1, -1, logits.shape[2])) 
 
-        # FIXME:as we add a 0.1 dropout during training, you shall use cfg on backbone's prediction during inference.
+        # FIXME:as we add a 0.1 dropout during training, you may use cfg on backbone's prediction during inference.
         logits = self.backbone(logits, xt, sigma) 
 
         return self._subs_parameterization(logits=logits, xt=xt)
@@ -529,12 +531,13 @@ class Diffusion(L.LightningModule):
         move_chance_t = t[:, None, None]
         move_chance_s = (t - dt)[:, None, None]
         assert move_chance_t.ndim == 3, move_chance_t.shape
-        text_embeds_null = torch.zeros_like(text_embeds) + self.lm.cls_embedding.cap_proj(self.lm.cls_embedding.uncond_embedding)
+        
         if p_x0 is None:
             input_ids.scatter_(1, indices, x)
             if self.config.ar_cfg:
                 p_x0 = self.forward(input_ids, text_embeds, attention_mask, x, indices, sigma_t).exp()
             else:
+                text_embeds_null = torch.zeros_like(text_embeds) + self.lm.cls_embedding.cap_proj(self.lm.cls_embedding.uncond_embedding)
                 p_x0_cond = self.forward(input_ids, text_embeds, attention_mask, x, indices, sigma_t)
                 p_x0_uncond = self.forward(input_ids, text_embeds_null, attention_mask, x, indices, sigma_t)
                 p_x0 = (p_x0_uncond + self.config.generation_cfg * (p_x0_cond - p_x0_uncond)).exp()
@@ -566,7 +569,7 @@ class Diffusion(L.LightningModule):
         move_chance_t = move_chance_t[:, None, None]
         move_chance_s = move_chance_s[:, None, None]
 
-        input_ids.scatter_(1, indices, x) #?
+        input_ids.scatter_(1, indices, x) 
 
         log_p_x0 = self.forward(input_ids, indices, x, sigma_t)
         assert move_chance_t.ndim == log_p_x0.ndim
