@@ -2,8 +2,8 @@ TOKENIZERS_PARALLELISM=false
 
 export WANDB_DISABLED=true
 
-MODEL_PATH=/workspace/intern/liaomingxiang/ARG-MDM/MDM-1010/outputs/neo-mdm-1B-coco-14M-m1024/2024.10.25/225608/checkpoints/1-40000.ckpt
-TEXT_PROMPT="A woman in floral dress and denim jacket walking down the street."
+MODEL_PATH=/workspace/intern/liaomingxiang/ARG-MDM/MDM-1010/outputs/drop1-mdm-1B-coco-14M-m1024/2024.10.26/222926/checkpoints/4-110000.ckpt
+TEXT_PROMPT="A white dog is lying on the ground on street."
 
 CUDA_VISIBLE_DEVICES=1 python inference.py \
     mode=sample_eval \
@@ -12,7 +12,7 @@ CUDA_VISIBLE_DEVICES=1 python inference.py \
     backbone=dit \
     data=llamaGen \
     mask_vocab_size=1024 \
-    generation_cfg=1.0 \
+    generation_cfg=3.0 \
     ar_cfg=False \
     loader.eval_batch_size=1 \
     eval.checkpoint_path=$MODEL_PATH \

@@ -364,7 +364,8 @@ class Diffusion(L.LightningModule):
             inputs_embeds=inputs_embeds,
             mask = mask
         ) 
-        # FIXME:here, the cfg may helps improve the AR model prediction, yet CURRENTLY USELESS!
+        # breakpoint()
+        # # FIXME:here, the cfg may helps improve the AR model prediction, yet CURRENTLY USELESS!
         # if self.config.ar_cfg:
         #     cond_logits, uncond_logits = torch.split(logits_combine, logits_combine.shape[0] // 2, dim=0)
         #     #the indices are now useful!

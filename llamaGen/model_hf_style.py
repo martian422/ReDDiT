@@ -28,7 +28,7 @@ class LlamaGen_Config(PretrainedConfig):
                  rope_base: float = 10000,
                  norm_eps: float = 1e-5,
                  initializer_range: float = 0.02,
-                 token_dropout_p: float = 0.1,
+                 token_dropout_p: float = 0.0,
                  attn_dropout_p: float = 0.0,
                  resid_dropout_p: float = 0.1,
                  ffn_dropout_p: float = 0.1,
@@ -411,7 +411,6 @@ class LlamaGen(PreTrainedModel):
             freqs_cis = self.freqs_cis[input_pos]
         # modify the masks, please!
         # transformer blocks
-        # FIXME:mask!!!
         for layer in self.layers:
             h = layer(h, freqs_cis, input_pos, mask)
         
