@@ -96,7 +96,7 @@ def generate_samples(config, logger, tokenizer):
             input_ids.scatter_(1, indices, x)
             x = model.forward(
                 input_ids, text_embeds, attention_mask, x, indices, unet_conditioning).argmax(dim=-1)
-        torch.save(x,f'/workspace/intern/liaomingxiang/ARG-MDM/MDM-1010/outputs/denoised_tensors/8block/drop-cfg3-ledetail_dog_s{num_steps}.pt')
+        torch.save(x,f'/workspace/intern/liaomingxiang/ARG-MDM/MDM-1010/outputs/denoised_tensors/loss6/loss6-cfg2-skiman_s{num_steps}.pt')
         print(f'Tensor at {num_steps} steps saved.')
 
     return 0

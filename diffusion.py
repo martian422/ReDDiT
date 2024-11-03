@@ -171,6 +171,9 @@ class Diffusion(L.LightningModule):
                 'current']['completed']
 
     def on_save_checkpoint(self, checkpoint):
+        keys_to_remove = [key for key in checkpoint['state_dict'].keys() if key.startswith('lm')]
+        for key in keys_to_remove:
+            del checkpoint['state_dict'][key]
         if self.ema:
             checkpoint['ema'] = self.ema.state_dict()
         # Copied from:
