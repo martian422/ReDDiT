@@ -361,12 +361,12 @@ class Diffusion(L.LightningModule):
         self.lm.causal_mask = (self.lm.causal_mask & expanded_mask) | identity_matrix
         # causal_mask = [[I, 0], [0, Causal]] , I for the pad tokens.
         # time2 = time.time()
-
-        logits, _ = self.lm(
-            input_ids=None,
-            inputs_embeds=inputs_embeds,
-            mask = mask
-        ) 
+        with torch.no_grad():
+            logits, _ = self.lm(
+                input_ids=None,
+                inputs_embeds=inputs_embeds,
+                mask = mask
+            ) 
         # breakpoint()
         # # FIXME:here, the cfg may helps improve the AR model prediction, yet CURRENTLY USELESS!
         # if self.config.ar_cfg:
