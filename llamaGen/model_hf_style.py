@@ -19,9 +19,9 @@ class LlamaGen_Config(PretrainedConfig):
     model_type = "t2i"  # Specify the model type if needed
 
     def __init__(self,
-                 dim: int = 1280,
-                 n_layer: int = 36,
-                 n_head: int = 20,
+                 dim: int = 1024,
+                 n_layer: int = 24,
+                 n_head: int = 16,
                  n_kv_head: Optional[int] = None,
                  multiple_of: int = 256,
                  ffn_dim_multiplier: Optional[float] = None,
@@ -36,9 +36,9 @@ class LlamaGen_Config(PretrainedConfig):
                  num_classes: int = 1000,
                  caption_dim: int = 2048,
                  class_dropout_prob: float = 0.1,
-                 model_type: str = 't2i', # 
+                 model_type: str = 'c2i', # 
                  vocab_size: int = 16384,
-                 cls_token_num: int = 120,
+                 cls_token_num: int = 1,
                  block_size: int = 256,
                  max_batch_size: int = 32,
                  max_seq_len: int = 2048,
