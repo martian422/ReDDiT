@@ -224,8 +224,7 @@ def _train(config, logger):
     device = torch.device(f'cuda:{local_rank}')
     
 
-    tokenizer = dataloader.get_tokenizer(config, device=device)
-    model = diffusion.Diffusion(config, tokenizer)
+    model = diffusion.Diffusion(config)
 
     # print('the local rank is:', device)
     # print('the tokenizer rank is:', model.tokenizer.model.device)

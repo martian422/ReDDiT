@@ -99,8 +99,7 @@ class EmbeddingWithMask(nn.Module):
 class Diffusion(L.LightningModule):
     def __init__(
         self,
-        config,
-        tokenizer):
+        config):
         super().__init__()
         self.save_hyperparameters()
         self.config = config
@@ -118,7 +117,6 @@ class Diffusion(L.LightningModule):
         
         self.lm = LlamaGen.from_pretrained(self.lm_name_or_path, config=lm_config).bfloat16()
 
-        self.tokenizer = tokenizer
 
         for p in self.lm.parameters():
             p.requires_grad = False
@@ -304,19 +302,21 @@ class Diffusion(L.LightningModule):
 
     def _preprocess_batch(self, batch):
 
-        caption_embs, emb_masks = self.tokenizer.get_text_embeddings(batch['text']) 
-        text_embeds = [caption_embs[t][:emb_masks[t].sum(),:] for t in range(caption_embs.shape[0])]
+        text_embeds=[0]
+        # caption_embs, emb_masks = self.tokenizer.get_text_embeddings(batch['text']) 
+        breakpoint()
+        # text_embeds = [caption_embs[t][:emb_masks[t].sum(),:] for t in range(caption_embs.shape[0])]
         
         image_tokens = torch.stack(batch['image_tokens']) # list of tokens
-        block_length = self.config.model.length
-        PAD_MAX=self.lm.cls_token_num # no longer than AR model's max t2i text length
+        # block_length = self.config.model.length
+        # PAD_MAX=self.lm.cls_token_num # no longer than AR model's max t2i text length
 
-        text_embeds = torch.stack([F.pad(t[:PAD_MAX,:], (0, 0, max(PAD_MAX - t.size(0),0), 0)) for t in text_embeds])
+        # text_embeds = torch.stack([F.pad(t[:PAD_MAX,:], (0, 0, max(PAD_MAX - t.size(0),0), 0)) for t in text_embeds])
 
         if self.config.batch_drop_out > 0:
             # for cfg perhaps.
             drop_ids = torch.rand(text_embeds.shape[0], device=text_embeds.device) < self.config.batch_drop_out
-            text_embeds = torch.where(drop_ids[:, None, None], self.lm.cls_embedding.uncond_embedding, text_embeds)
+            # text_embeds = torch.where(drop_ids[:, None, None], self.lm.cls_embedding.uncond_embedding, text_embeds)
         
         text_embeds = self.lm.cls_embedding(text_embeds.to(self.device))
 
