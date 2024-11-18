@@ -2,16 +2,16 @@ TOKENIZERS_PARALLELISM=false
 
 export WANDB_DISABLED=true
 
-MODEL_PATH=/workspace/intern/liaomingxiang/ARG-MDM/MDM-1010/outputs/gen-1B-50M-m1024-decay-bs768/2024.11.07/145825/checkpoints/1-120000.ckpt
-TEXT_PROMPT="A photo of a smiling person with snow goggles on holding a snowboard."
+MODEL_PATH=/home/node237/Code/mdlm-c2i/outputs/c2i-24b16h-m1-4e4-bs512/2024.11.13/143516/checkpoints/63-160000.ckpt
+TEXT_PROMPT="1"
 
 CUDA_VISIBLE_DEVICES=1 python inference.py \
     mode=sample_eval \
-    model=1B \
+    model=L-model-new \
     model.length=256 \
     backbone=dit \
     data=llamaGen \
-    mask_vocab_size=1024 \
+    mask_vocab_size=1 \
     generation_cfg=3.0 \
     ar_cfg=False \
     loader.eval_batch_size=1 \

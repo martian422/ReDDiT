@@ -1,10 +1,10 @@
 name: L-model
 type: ddit
-hidden_size: 1024
+hidden_size: 1280
 cond_dim: 2
 length: 256
 n_blocks: 24
-n_heads: 16
+n_heads: 20
 scale_by_sigma: True
 dropout: 0.1
 tie_word_embeddings: False

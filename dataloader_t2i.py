@@ -11,7 +11,6 @@ import numpy as np
 
 LOGGER = utils.get_logger(__name__)
 
-from llamaGen.t5 import T5Embedder
 import torch.distributed as dist
 
 def get_dataset(
@@ -86,20 +85,6 @@ def get_tokenizer_old(config):
     print(f'{tokenizer.chat_template=}')
     return tokenizer
 
-def get_tokenizer(config, device):
-
-    precision = {'none': torch.float32, 'bf16': torch.bfloat16, 'fp16': torch.float16}[config.text_encoder.precision]
-
-    t5_xl = T5Embedder(
-        device=device, 
-        local_cache=True, 
-        cache_dir=config.text_encoder.path, 
-        dir_or_name=config.text_encoder.type,
-        torch_dtype=precision,
-        model_max_length=config.text_encoder.max_length ### to be decided
-    )
-
-    return t5_xl
 
 def get_dataloaders(
     config,  

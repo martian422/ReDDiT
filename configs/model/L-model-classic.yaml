@@ -1,10 +1,10 @@
-name: tiny
+name: L-model-classic
 type: ddit
-hidden_size: 512
+hidden_size: 1024
 cond_dim: 2
 length: 256
-n_blocks: 8
-n_heads: 8
+n_blocks: 24
+n_heads: 16
 scale_by_sigma: True
 dropout: 0.1
 tie_word_embeddings: False

@@ -282,48 +282,26 @@ class Diffusion(L.LightningModule):
         return sigma
 
     def _preprocess_inputs(self, inputs, x):
-        conversation = [
-            {'role': 'system', 'content': 'You are a helpful assistant in solving math problems. Perform the calculations and provide the answer number at the end after \"\n #### \".'},
-            {'role': 'user', 'content': inputs},
-        ]
-        input_ids = self.tokenizer.apply_chat_template(
-            conversation, return_tensors='pt').to(self.device)
-        input_length = input_ids.shape[1]
-        block_length = self.config.model.length
-
-        batch_size = x.shape[0]
-        # extend the input_ids with priors
-        input_ids = torch.cat([
-            input_ids.expand(batch_size, -1), x,
-        ], dim=1)
-        # generate target's (mask) index [x,x+1, ... , x + block_length] with dim=bs.
-        indices = torch.arange(input_length, input_length + block_length, dtype=torch.int64)[None, :].expand(batch_size, -1).to(self.device) 
-        return input_ids, indices
+        print('this is not used!')
+        return 0
 
     def _preprocess_batch(self, batch):
 
-        text_embeds=[0]
-        # caption_embs, emb_masks = self.tokenizer.get_text_embeddings(batch['text']) 
-        breakpoint()
-        # text_embeds = [caption_embs[t][:emb_masks[t].sum(),:] for t in range(caption_embs.shape[0])]
-        
+        labels=torch.tensor([int(t[0]) for t in batch['text']]).unsqueeze(1)
+      
         image_tokens = torch.stack(batch['image_tokens']) # list of tokens
-        # block_length = self.config.model.length
-        # PAD_MAX=self.lm.cls_token_num # no longer than AR model's max t2i text length
-
-        # text_embeds = torch.stack([F.pad(t[:PAD_MAX,:], (0, 0, max(PAD_MAX - t.size(0),0), 0)) for t in text_embeds])
 
         if self.config.batch_drop_out > 0:
             # for cfg perhaps.
-            drop_ids = torch.rand(text_embeds.shape[0], device=text_embeds.device) < self.config.batch_drop_out
-            # text_embeds = torch.where(drop_ids[:, None, None], self.lm.cls_embedding.uncond_embedding, text_embeds)
-        
-        text_embeds = self.lm.cls_embedding(text_embeds.to(self.device))
+            drop_ids = torch.rand(labels.shape[0], device=labels.device) < self.config.batch_drop_out
+            labels = torch.where(drop_ids[:, None], self.lm.num_classes, labels)
 
+        # text_embeds = torch.stack([F.pad(t[:PAD_MAX,:], (0, 0, max(PAD_MAX - t.size(0),0), 0)) for t in text_embeds])
+        text_embeds = self.lm.cls_embedding(labels.to(self.device))
+        
         attention_mask = (text_embeds[:,:,0]!=0).to(torch.int)
         
         # indices = (PAD_MAX + torch.arange(block_length, device=text_embeds.device)).repeat(2,1)
-
         return image_tokens, text_embeds, attention_mask
     
     def forward(self, input_ids, text_embeds, attention_mask, xt, indices, sigma):
@@ -333,7 +311,7 @@ class Diffusion(L.LightningModule):
         # objectif
         # cat the text_embeds
         # input_ids: bs 256, text bs 120 1280, attentionmask for text, left-padding
-        # FIXME: ar_cfg comsumes too much memory!!
+        # FIXME: ar_cfg comsumes too much memory,and we do not need to use it in training
         # if self.config.ar_cfg:
         #     inputs_embeds_cond = torch.cat([text_embeds,self.embed_tokens(input_ids)],dim=1)
         #     inputs_embeds_null = torch.cat([torch.zeros_like(text_embeds) + self.lm.cls_embedding.cap_proj(self.lm.cls_embedding.uncond_embedding), self.embed_tokens(input_ids)],dim=1)
@@ -344,28 +322,19 @@ class Diffusion(L.LightningModule):
         #     mask = F.pad(attention_mask, (0, input_ids.shape[1], 0, 0),value=1)
 
         inputs_embeds = torch.cat([text_embeds,self.embed_tokens(input_ids)],dim=1)
-        mask = F.pad(attention_mask, (0, input_ids.shape[1], 0, 0),value=1)
-
+        # mask = F.pad(attention_mask, (0, input_ids.shape[1], 0, 0),value=1)
         with torch.device(self.lm.device):
             self.lm.setup_caches(
                 max_batch_size=inputs_embeds.shape[0], 
                 max_seq_length=inputs_embeds.shape[1], 
                 dtype = self.lm.tok_embeddings.weight.dtype
                 )
-        # lm.causal_mask [bs,376,376]
-        # mask [bs,376]
-        mask_size = mask.shape[1]
-        identity_matrix = torch.eye(mask_size,device = self.lm.causal_mask.device, dtype = torch.bool).unsqueeze(0)
-        self.lm.causal_mask = self.lm.causal_mask ^ identity_matrix
-        expanded_mask = mask.unsqueeze(1).expand(-1, mask_size, -1).bool()
-        self.lm.causal_mask = (self.lm.causal_mask & expanded_mask) | identity_matrix
-        # causal_mask = [[I, 0], [0, Causal]] , I for the pad tokens.
-        # time2 = time.time()
+        # lm.causal_mask [bs,264,264]
         with torch.no_grad():
             logits, _ = self.lm(
                 input_ids=None,
                 inputs_embeds=inputs_embeds,
-                mask = mask
+                mask = self.lm.causal_mask[:,:257,:257]
             ) 
         # breakpoint()
         # # FIXME:here, the cfg may helps improve the AR model prediction, yet CURRENTLY USELESS!
@@ -548,7 +517,7 @@ class Diffusion(L.LightningModule):
             #     p_x0_cond = self.forward(input_ids, text_embeds, attention_mask, x, indices, sigma_t)
             #     p_x0_uncond = self.forward(input_ids, text_embeds_null, attention_mask, x, indices, sigma_t)
             #     p_x0 = (p_x0_uncond + self.config.generation_cfg * (p_x0_cond - p_x0_uncond)).exp()
-            text_embeds_null = torch.zeros_like(text_embeds) + self.lm.cls_embedding.cap_proj(self.lm.cls_embedding.uncond_embedding)
+            text_embeds_null = torch.zeros_like(text_embeds) + self.lm.cls_embedding(torch.tensor([[self.lm.num_classes]]).to(self.lm.device))
             p_x0_cond = self.forward(input_ids, text_embeds, attention_mask, x, indices, sigma_t)
             p_x0_uncond = self.forward(input_ids, text_embeds_null, attention_mask, x, indices, sigma_t)
             p_x0 = (p_x0_uncond + self.config.generation_cfg * (p_x0_cond - p_x0_uncond)).exp()

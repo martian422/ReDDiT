@@ -10,15 +10,9 @@ defaults:
 lm_name_or_path: /home/node237/Code/llamagen/pretrained_models_hf_c2i
 lm_vocab_size: 16384
 mask_vocab_size: 128
-ar_cfg: True
+ar_cfg: False
 generation_cfg: 7.5
 batch_drop_out: 0.1
-
-text_encoder: 
-  path: /workspace/intern/liaomingxiang/ARG-MDM/t5-xl
-  type: flan-t5-xl
-  precision: bf16
-  max_length: 128
 
 mode: train  # train / ppl_eval / sample_eval
 diffusion: absorbing_state

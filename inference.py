@@ -22,21 +22,20 @@ omegaconf.OmegaConf.register_new_resolver(
     'div_up', lambda x, y: (x + y - 1) // y)
 
 
-def _load_from_checkpoint(config, tokenizer):
+def _load_from_checkpoint(config):
     if 'hf' in config.backbone:
         return diffusion.Diffusion(
-            config, tokenizer=tokenizer).to('cuda')
+            config).to('cuda')
     
     return diffusion.Diffusion.load_from_checkpoint(
         config.eval.checkpoint_path,
-        tokenizer=tokenizer,
         config=config,
         strict=False)
 
 
-def generate_samples(config, logger, tokenizer):
+def generate_samples(config, logger):
     logger.info('Generating samples.')
-    model = _load_from_checkpoint(config=config, tokenizer=tokenizer)
+    model = _load_from_checkpoint(config=config)
     if config.eval.disable_ema:
         logger.info('Disabling EMA.')
         model.ema = None
@@ -58,14 +57,10 @@ def generate_samples(config, logger, tokenizer):
         input_ids = x.clone()
         import numpy as np
         import torch.nn.functional as F
-        PAD_MAX=model.lm.cls_token_num
-        text_desc = model.config.sampling.input_str
-        caption_embs, emb_masks = tokenizer.get_text_embeddings([text_desc])
-        text_embeds = [caption_embs[t][:emb_masks[t].sum(),:] for t in range(caption_embs.shape[0])]
-        text_embeds = text_embeds[0].unsqueeze(0)
-        text_embeds = F.pad(text_embeds, (0, 0, PAD_MAX-text_embeds.shape[1], 0))
 
-        text_embeds = model.lm.cls_embedding(text_embeds)
+        class_num=int(config.sampling.input_str)
+        labels=torch.tensor([[class_num]])
+        text_embeds = model.lm.cls_embedding(labels.to(model.device))
         
         attention_mask = (text_embeds[:,:,0]!=0).to(torch.int)
         
@@ -96,7 +91,7 @@ def generate_samples(config, logger, tokenizer):
             input_ids.scatter_(1, indices, x)
             x = model.forward(
                 input_ids, text_embeds, attention_mask, x, indices, unet_conditioning).argmax(dim=-1)
-        torch.save(x,f'/workspace/intern/liaomingxiang/ARG-MDM/MDM-1010/outputs/denoised_tensors/50M/cfg3-skiman_s{num_steps}.pt')
+        torch.save(x,f'/home/node237/Code/mdlm-c2i/outputs/images/new-cfg-{config.generation_cfg}-{class_num}_s{num_steps}.pt')
         print(f'Tensor at {num_steps} steps saved.')
 
     return 0
@@ -108,9 +103,8 @@ def main(config):
     logger = utils.get_logger(__name__)
     local_rank = int(os.getenv("LOCAL_RANK", 0))
     device = torch.device(f'cuda:{local_rank}')
-    tokenizer = dataloader.get_tokenizer(config,device=device)
 
-    generate_samples(config, logger, tokenizer)
+    generate_samples(config, logger)
 
 
 if __name__ == '__main__':

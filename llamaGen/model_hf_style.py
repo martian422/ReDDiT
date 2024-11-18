@@ -98,11 +98,8 @@ class LabelEmbedder(nn.Module):
         labels = torch.where(drop_ids, self.num_classes, labels)
         return labels
 
-    def forward(self, labels, train, force_drop_ids=None):
-        use_dropout = self.dropout_prob > 0
-        if (train and use_dropout) or (force_drop_ids is not None):
-            labels = self.token_drop(labels, force_drop_ids)
-        embeddings = self.embedding_table(labels).unsqueeze(1)
+    def forward(self, labels):
+        embeddings = self.embedding_table(labels)
         return embeddings
 
 

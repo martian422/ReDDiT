@@ -1,38 +1,36 @@
 #!/bin/bash
 set -x
 
+export PYTHONPATH=$PYTHONPATH:/home/node237/Code/mdlm-c2i
+
 WORLD_SIZE=1
 RANK=0
 
-export PYTHONPATH=$PYTHONPATH:/home/node237/Code/mdlm-c2i
-
 TOKENIZERS_PARALLELISM=false
-
-export WANDB_DISABLED=true
-
 
 ulimit -n 65536
 
-CUDA_VISIBLE_DEVICES=0 torchrun \
-    --nnodes=$WORLD_SIZE --node-rank=$RANK --nproc_per_node=1 \
-    --master_port=11456 \
+CUDA_VISIBLE_DEVICES=4,5,6,7 torchrun \
+    --nnodes=$WORLD_SIZE --node-rank=$RANK --nproc_per_node=4 \
+    --master_port=11455 \
     main.py \
-    model=1B \
+    model=medium\
     data=llamaGen \
     data.dataset_path=/home/node237/dataset_files/imagenet-c1000  \
     data.val_dataset_path=/home/node237/dataset_files/imagenet-c1000  \
     data.image_token_dir=/home/node237/Workspace/Datasets/imagenet-1k/train_code \
     data.cache_dir=/home/node237/dataset_files/cache \
+    wandb.name=c2i-16b12h-m1-768-5e4-bs512 \
     lr_scheduler=cosine_decay_warmup \
     optim.lr=5e-4 \
     data.size=1M \
     generation_cfg=3.0 \
     ar_cfg=False \
     parameterization=subs \
-    mask_vocab_size=1024 \
+    mask_vocab_size=1 \
     model.length=256 \
     eval.compute_generative_perplexity=False \
-    sampling.steps=1000 \
+    sampling.steps=100 \
     trainer.num_nodes=1 \
     loader.num_workers=64 \
     loader.batch_size=64 \
