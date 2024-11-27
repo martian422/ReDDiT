@@ -16,11 +16,11 @@ CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 torchrun \
     main.py \
     model=L-model-classic \
     data=llamaGen \
-    data.dataset_path=/home/node237/dataset_files/imagenet-c1000-gen-top16k  \
-    data.val_dataset_path=/home/node237/dataset_files/imagenet-c1000-gen-top16k  \
-    data.image_token_dir=/home/node237/Workspace/Datasets/imagenet-1k/gen-top16k \
+    data.dataset_path=/home/node237/dataset_files/imagenet-gen-cfgmix-1-2  \
+    data.val_dataset_path=/home/node237/dataset_files/imagenet-gen-cfgmix-1-2  \
+    data.image_token_dir=/home/node237/Workspace/Datasets/imagenet-1k/gen \
     data.cache_dir=/home/node237/dataset_files/cache \
-    wandb.name=c2i-gentop-24b16h-m1-4e4-bs512 \
+    wandb.name=c2i-repa-ac-genmix-L-bs512 \
     lr_scheduler=cosine_decay_warmup \
     optim.lr=4e-4 \
     data.size=1M \

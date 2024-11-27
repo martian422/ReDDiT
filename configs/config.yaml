@@ -14,6 +14,13 @@ ar_cfg: False
 generation_cfg: 7.5
 batch_drop_out: 0.1
 
+repa_loss:
+  vq_ckpt: /home/node237/Code/llamagen/pretrained_vq/vq_ds16_c2i.pt
+  use_repa: True
+  projector_dim: 2048
+  z_dim: 768
+  dino_model: dinov2_vitb14_reg
+
 mode: train  # train / ppl_eval / sample_eval
 diffusion: absorbing_state
 backbone: dit  # dit / dimamba / ar

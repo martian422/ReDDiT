@@ -17,7 +17,7 @@ CUDA_VISIBLE_DEVICES=0 torchrun \
     --nnodes=$WORLD_SIZE --node-rank=$RANK --nproc_per_node=1 \
     --master_port=11456 \
     main.py \
-    model=1B \
+    model=L-model-classic \
     data=llamaGen \
     data.dataset_path=/home/node237/dataset_files/imagenet-c1000  \
     data.val_dataset_path=/home/node237/dataset_files/imagenet-c1000  \
@@ -35,5 +35,5 @@ CUDA_VISIBLE_DEVICES=0 torchrun \
     sampling.steps=1000 \
     trainer.num_nodes=1 \
     loader.num_workers=64 \
-    loader.batch_size=64 \
+    loader.batch_size=32 \
     loader.global_batch_size=512 \

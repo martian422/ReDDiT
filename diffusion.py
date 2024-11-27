@@ -18,8 +18,12 @@ import models
 import noise_schedule
 import utils
 from llamaGen.model_hf_style import LlamaGen, LlamaGen_Config
+from accelerate import Accelerator
+
+from timm.data import IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD
 
 import time
+from torchvision.transforms import Normalize
 
 lm_config=LlamaGen_Config()
 
@@ -31,6 +35,16 @@ LOG2 = math.log(2)
 #         1e-10
 #         - (torch.rand_like(categorical_probs) + 1e-10).log())
 #     return (categorical_probs / gumbel_norm).argmax(dim=-1)
+CLIP_DEFAULT_MEAN = (0.48145466, 0.4578275, 0.40821073)
+CLIP_DEFAULT_STD = (0.26862954, 0.26130258, 0.27577711)
+
+
+
+def mean_flat(x):
+    """
+    Take the mean over all non-batch dimensions.
+    """
+    return torch.mean(x, dim=list(range(1, len(x.size()))))
 
 
 def _sample_categorical(categorical_probs):
@@ -39,6 +53,17 @@ def _sample_categorical(categorical_probs):
     # then return is tensor([[2, 2],[1, 0]])
     *sample_shape, C = categorical_probs.shape
     return torch.multinomial(categorical_probs.reshape(-1, C), num_samples=1).reshape(*sample_shape)
+
+### introducing REPA
+
+def build_mlp(hidden_size, projector_dim, z_dim):
+    return nn.Sequential(
+                nn.Linear(hidden_size, projector_dim),
+                nn.SiLU(),
+                nn.Linear(projector_dim, projector_dim),
+                nn.SiLU(),
+                nn.Linear(projector_dim, z_dim),
+            )
 
 
 @dataclass
@@ -99,9 +124,11 @@ class EmbeddingWithMask(nn.Module):
 class Diffusion(L.LightningModule):
     def __init__(
         self,
-        config):
+        config,
+        dino_encoder,
+        vq_model):
         super().__init__()
-        self.save_hyperparameters()
+        self.save_hyperparameters("config")
         self.config = config
 
         
@@ -116,6 +143,8 @@ class Diffusion(L.LightningModule):
         self.parameterization = self.config.parameterization
         
         self.lm = LlamaGen.from_pretrained(self.lm_name_or_path, config=lm_config).bfloat16()
+        self.dino = dino_encoder
+        self.vq = vq_model
 
 
         for p in self.lm.parameters():
@@ -169,7 +198,7 @@ class Diffusion(L.LightningModule):
                 'current']['completed']
 
     def on_save_checkpoint(self, checkpoint):
-        keys_to_remove = [key for key in checkpoint['state_dict'].keys() if key.startswith('lm')]
+        keys_to_remove = [key for key in checkpoint['state_dict'].keys() if (key.startswith('lm') or key.startswith('vq') or key.startswith('dino'))]
         for key in keys_to_remove:
             del checkpoint['state_dict'][key]
         if self.ema:
@@ -273,6 +302,25 @@ class Diffusion(L.LightningModule):
         logits[unmasked_indices, xt[unmasked_indices]] = 0 
         return logits
 
+    def _subs_parameterization_with_repa(self, logits, xt, zs_tilde):
+        # log prob at the mask index = - infinity
+        # 'Zero Masking Probabilities'
+        logits[:, :, self.mask_index_range[0]:] += self.neg_infinity
+        
+        # Normalize the logits such that x.exp() is
+        # a probability distribution over vocab_size.
+        logits = logits - torch.logsumexp(logits, dim=-1, keepdim=True)
+
+        # Apply updates directly in the logits matrix.
+        # For the logits of the unmasked tokens, set all values
+        # to -infinity except for the indices corresponding to
+        # the unmasked tokens. (result in one-hot for each unmasked token)
+        # 'Carry-Over Unmasking'
+        unmasked_indices = (xt < self.mask_index_range[0])
+        logits[unmasked_indices] = self.neg_infinity
+        logits[unmasked_indices, xt[unmasked_indices]] = 0 
+        return logits, zs_tilde
+
     def _process_sigma(self, sigma):
         if sigma.ndim > 1:
             sigma = sigma.squeeze(-1)
@@ -300,9 +348,17 @@ class Diffusion(L.LightningModule):
         text_embeds = self.lm.cls_embedding(labels.to(self.device))
         
         attention_mask = (text_embeds[:,:,0]!=0).to(torch.int)
-        
+
+        with torch.no_grad():
+            with torch.amp.autocast('cuda', dtype=torch.bfloat16):
+                raw_images = self.vq.decode_code(image_tokens,[image_tokens.shape[0],8,16,16]) # remember to change for other resolution.
+                raw_images_ = Normalize(IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD)(raw_images)
+                raw_images_ = torch.nn.functional.interpolate(raw_images_, 224, mode='bicubic')
+                zs = self.dino.forward_features(raw_images_)
+                zs = zs['x_norm_patchtokens'] # [bs, 16*16, 768] 
+
         # indices = (PAD_MAX + torch.arange(block_length, device=text_embeds.device)).repeat(2,1)
-        return image_tokens, text_embeds, attention_mask
+        return image_tokens, text_embeds, attention_mask, zs
     
     def forward(self, input_ids, text_embeds, attention_mask, xt, indices, sigma):
         """Interact with LLM, returns log score. Adds classifier-free guidance."""
@@ -334,7 +390,7 @@ class Diffusion(L.LightningModule):
             logits, _ = self.lm(
                 input_ids=None,
                 inputs_embeds=inputs_embeds,
-                mask = self.lm.causal_mask[:,:257,:257]
+                mask = self.lm.causal_mask[:,:self.config.model.length+1,:self.config.model.length+1]
             ) 
         # breakpoint()
         # # FIXME:here, the cfg may helps improve the AR model prediction, yet CURRENTLY USELESS!
@@ -350,9 +406,9 @@ class Diffusion(L.LightningModule):
         logits = logits.gather(1, (new_indices - 1)[:, :, None].expand(-1, -1, logits.shape[2])) 
 
         # As we add a 0.1 dropout during training, you may use cfg on logits' prediction during inference.
-        logits = self.backbone(logits, xt, sigma) 
+        logits, zs_tilde = self.backbone(logits, xt, sigma) 
 
-        return self._subs_parameterization(logits=logits, xt=xt)
+        return self._subs_parameterization_with_repa(logits=logits, xt=xt, zs_tilde = zs_tilde)
 
     def _d3pm_loss(self, model_output, xt, x0, t):
         dt = 1 / self.T
@@ -386,8 +442,9 @@ class Diffusion(L.LightningModule):
         return self.T * L_vb
 
     def _compute_loss_XX(self, batch, prefix):
-        input_ids, text_embeds, attention_mask= self._preprocess_batch(batch)
-        losses = self._loss_XX(input_ids, text_embeds, attention_mask)
+        # entrance
+        input_ids, text_embeds, attention_mask, zs = self._preprocess_batch(batch)
+        losses = self._loss_XX(input_ids, text_embeds, attention_mask, zs)
         loss = losses.loss
 
         self.log_dict(dict(loss=loss), on_step=False, on_epoch=True, sync_dist=True)
@@ -575,9 +632,9 @@ class Diffusion(L.LightningModule):
             return self.noise.importance_sampling_transformation(t)
         return t
 
-    def _forward_pass_diffusion_XX(self, input_ids, text_embeds, attention_mask):
+    def _forward_pass_diffusion_XX(self, input_ids, text_embeds, attention_mask, zs):
         
-        # x0 = input_ids.gather(1, indices)
+
         indices = torch.arange(input_ids.shape[1],device = input_ids.device).repeat(input_ids.shape[0],1)
         x0 = input_ids.clone()
         t = self._sample_t_XX(x0.shape[0], x0.device) # bs
@@ -601,10 +658,22 @@ class Diffusion(L.LightningModule):
         xt = self.q_xt(x0, move_chance)
         input_ids.scatter_(1, indices, xt) 
 
-        model_output = self.forward(
+        model_output, zs_tilde = self.forward(
             input_ids, text_embeds, attention_mask, xt, indices, unet_conditioning)
         utils.print_nans(model_output, 'model_output')
 
+        ### repa
+        proj_loss = 0.
+        zs=[zs]
+        bsz = zs[0].shape[0]
+        for i, (z, z_tilde) in enumerate(zip(zs, zs_tilde)):
+            for j, (z_j, z_tilde_j) in enumerate(zip(z, z_tilde)):
+                z_tilde_j = torch.nn.functional.normalize(z_tilde_j, dim=-1) 
+                z_j = torch.nn.functional.normalize(z_j, dim=-1)
+                proj_loss += mean_flat(-(z_j * z_tilde_j).sum(dim=-1))
+        proj_loss /= (len(zs) * bsz)
+
+        # deal with zs here or inside subs_para
         if self.T > 0:
             diffusion_loss = self._d3pm_loss(
                 model_output=model_output, xt=xt, x0=x0, t=t)
@@ -622,11 +691,12 @@ class Diffusion(L.LightningModule):
             return log_p_theta * torch.log1p(
                 - torch.exp(- self.noise.sigma_min))
         
-        return - log_p_theta * (dsigma / torch.expm1(sigma))[:, None]
+        origin_loss = - log_p_theta * (dsigma / torch.expm1(sigma))[:, None]
+        return origin_loss, proj_loss
 
-    def _loss_XX(self, input_ids, text_embeds, attention_mask):
+    def _loss_XX(self, input_ids, text_embeds, attention_mask, zs):
 
-        loss = self._forward_pass_diffusion_XX(input_ids, text_embeds,attention_mask)
+        loss, proj_loss = self._forward_pass_diffusion_XX(input_ids, text_embeds,attention_mask, zs)
 
         loss_mask =torch.ones(input_ids.shape,dtype=torch.int,device=loss.device)
         nlls = loss * loss_mask
@@ -634,9 +704,9 @@ class Diffusion(L.LightningModule):
 
         batch_nll = nlls.sum()
         token_nll = batch_nll / count
-
+        loss_sum = token_nll + 0.5* proj_loss.mean()
         return Loss(
-            loss=token_nll, 
+            loss=loss_sum, 
             nlls=nlls, 
             token_mask=loss_mask,
         )

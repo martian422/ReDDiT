@@ -11,6 +11,10 @@ import torch
 import dataloader_t2i as dataloader
 import diffusion
 import utils
+import timm
+
+from llamaGen.vq_model import VQ_models
+
 
 omegaconf.OmegaConf.register_new_resolver(
     'cwd', os.getcwd)
@@ -20,6 +24,19 @@ omegaconf.OmegaConf.register_new_resolver(
     'eval', eval)
 omegaconf.OmegaConf.register_new_resolver(
     'div_up', lambda x, y: (x + y - 1) // y)
+
+@torch.no_grad()
+def load_encoder_dinov2(encoder_dir):
+
+    encoder = torch.hub.load('facebookresearch/dinov2', encoder_dir)
+    del encoder.head
+    encoder.pos_embed.data = timm.layers.pos_embed.resample_abs_pos_embed(
+                encoder.pos_embed.data, [16, 16],
+            )
+    encoder.head = torch.nn.Identity()
+
+    return encoder
+
 
 
 def _load_from_checkpoint(config):
@@ -140,8 +157,28 @@ def _train(config, logger):
     local_rank = int(os.getenv("LOCAL_RANK", 0))
     device = torch.device(f'cuda:{local_rank}')
     
+    dino_encoder = load_encoder_dinov2(config.repa_loss.dino_model)
+    dino_encoder = dino_encoder.to(device)
+    for p in dino_encoder.parameters():
+        p.requires_grad = False
+    dino_encoder.eval()
 
-    model = diffusion.Diffusion(config)
+    vq_model = VQ_models["VQ-16"](
+        codebook_size=16384,
+        codebook_embed_dim=8)
+    vq_model.to(device)
+    vq_model.eval()
+    checkpoint = torch.load(config.repa_loss.vq_ckpt, map_location="cpu")
+    vq_model.load_state_dict(checkpoint["model"])
+
+    del checkpoint
+
+    for p in vq_model.parameters():
+        p.requires_grad = False
+
+    print(f"image tokenizer is loaded")
+
+    model = diffusion.Diffusion(config, dino_encoder, vq_model)
 
     # print('the local rank is:', device)
     # print('the tokenizer rank is:', model.tokenizer.model.device)

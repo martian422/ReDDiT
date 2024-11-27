@@ -17,6 +17,16 @@ torch._C._jit_override_can_fuse_on_cpu(True)
 torch._C._jit_override_can_fuse_on_gpu(True)
 
 
+def build_mlp(hidden_size, projector_dim, z_dim):
+    return nn.Sequential(
+                nn.Linear(hidden_size, projector_dim),
+                nn.SiLU(),
+                nn.Linear(projector_dim, projector_dim),
+                nn.SiLU(),
+                nn.Linear(projector_dim, z_dim),
+            )
+
+
 def bias_dropout_add_scale(
         x: torch.Tensor,
         bias: typing.Optional[torch.Tensor],
@@ -349,6 +359,11 @@ class DIT(nn.Module, huggingface_hub.PyTorchModelHubMixin):
                 dropout=config.model.dropout))
         self.blocks = nn.ModuleList(blocks)
 
+        # introducing repa:
+        if self.config.repa_loss.use_repa==True:
+            self.projectors = nn.ModuleList([
+                build_mlp(self.config.model.hidden_size, self.config.repa_loss.projector_dim, self.config.repa_loss.z_dim)])
+
         self.output_layer = DDitFinalLayer(
             config.model.hidden_size,
             vocab_size,
@@ -363,12 +378,14 @@ class DIT(nn.Module, huggingface_hub.PyTorchModelHubMixin):
 
     def forward(self, logits, indices, sigma):
         with torch.amp.autocast('cuda',dtype=torch.bfloat16):
-            x = self.vocab_embed(indices) + self.logit_embed(logits)
+            x = self.vocab_embed(indices) + self.logit_embed(logits) # [bs, psz**2, hidden_size]
             c = F.silu(self.sigma_map(sigma))
             rotary_cos_sin = self.rotary_emb(x)
-
+            N, T, D = x.shape
             for i in range(len(self.blocks)):
                 x = self.blocks[i](x, rotary_cos_sin, c, seqlens=None)
+                if i+1==len(self.blocks):
+                    ## FIXME: identify N, D, T here!
+                    zs = [projector(x.reshape(-1, D)).reshape(N, T, -1) for projector in self.projectors]
             x = self.output_layer(x, c)
-
-        return x
+        return x, zs
