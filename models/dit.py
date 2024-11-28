@@ -360,9 +360,12 @@ class DIT(nn.Module, huggingface_hub.PyTorchModelHubMixin):
         self.blocks = nn.ModuleList(blocks)
 
         # introducing repa:
-        if self.config.repa_loss.use_repa==True:
+        if self.config.repa_loss.use_repa==True and self.training:
             self.projectors = nn.ModuleList([
                 build_mlp(self.config.model.hidden_size, self.config.repa_loss.projector_dim, self.config.repa_loss.z_dim)])
+        else:
+            print('Inferencing, skip alignment.')
+            self.projectors = None
 
         self.output_layer = DDitFinalLayer(
             config.model.hidden_size,
@@ -384,8 +387,9 @@ class DIT(nn.Module, huggingface_hub.PyTorchModelHubMixin):
             N, T, D = x.shape
             for i in range(len(self.blocks)):
                 x = self.blocks[i](x, rotary_cos_sin, c, seqlens=None)
-                if i+1==len(self.blocks):
-                    ## FIXME: identify N, D, T here!
+                if i+1==len(self.blocks) and self.training:
                     zs = [projector(x.reshape(-1, D)).reshape(N, T, -1) for projector in self.projectors]
+                elif self.training == False:
+                    zs = None
             x = self.output_layer(x, c)
         return x, zs

@@ -125,8 +125,8 @@ class Diffusion(L.LightningModule):
     def __init__(
         self,
         config,
-        dino_encoder,
-        vq_model):
+        dino_encoder=None,
+        vq_model=None):
         super().__init__()
         self.save_hyperparameters("config")
         self.config = config
@@ -283,26 +283,8 @@ class Diffusion(L.LightningModule):
                 self.backbone.parameters(),
                 self.noise.parameters()))
 
-    def _subs_parameterization(self, logits, xt):
-        # log prob at the mask index = - infinity
-        # 'Zero Masking Probabilities'
-        logits[:, :, self.mask_index_range[0]:] += self.neg_infinity
-        
-        # Normalize the logits such that x.exp() is
-        # a probability distribution over vocab_size.
-        logits = logits - torch.logsumexp(logits, dim=-1, keepdim=True)
 
-        # Apply updates directly in the logits matrix.
-        # For the logits of the unmasked tokens, set all values
-        # to -infinity except for the indices corresponding to
-        # the unmasked tokens. (result in one-hot for each unmasked token)
-        # 'Carry-Over Unmasking'
-        unmasked_indices = (xt < self.mask_index_range[0])
-        logits[unmasked_indices] = self.neg_infinity
-        logits[unmasked_indices, xt[unmasked_indices]] = 0 
-        return logits
-
-    def _subs_parameterization_with_repa(self, logits, xt, zs_tilde):
+    def _subs_parameterization_with_repa(self, logits, xt, zs_tilde=None):
         # log prob at the mask index = - infinity
         # 'Zero Masking Probabilities'
         logits[:, :, self.mask_index_range[0]:] += self.neg_infinity
@@ -575,8 +557,8 @@ class Diffusion(L.LightningModule):
             #     p_x0_uncond = self.forward(input_ids, text_embeds_null, attention_mask, x, indices, sigma_t)
             #     p_x0 = (p_x0_uncond + self.config.generation_cfg * (p_x0_cond - p_x0_uncond)).exp()
             text_embeds_null = torch.zeros_like(text_embeds) + self.lm.cls_embedding(torch.tensor([[self.lm.num_classes]]).to(self.lm.device))
-            p_x0_cond = self.forward(input_ids, text_embeds, attention_mask, x, indices, sigma_t)
-            p_x0_uncond = self.forward(input_ids, text_embeds_null, attention_mask, x, indices, sigma_t)
+            p_x0_cond, _ = self.forward(input_ids, text_embeds, attention_mask, x, indices, sigma_t)
+            p_x0_uncond, _ = self.forward(input_ids, text_embeds_null, attention_mask, x, indices, sigma_t)
             p_x0 = (p_x0_uncond + self.config.generation_cfg * (p_x0_cond - p_x0_uncond)).exp()
 
         assert move_chance_t.ndim == p_x0.ndim

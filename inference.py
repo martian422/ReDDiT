@@ -89,7 +89,7 @@ def generate_samples(config, logger):
             t = timesteps[-1] * torch.ones(x.shape[0], 1, device=model.device)
             unet_conditioning = model.noise(t)[0]
             input_ids.scatter_(1, indices, x)
-            x = model.forward(
+            x, _ = model.forward(
                 input_ids, text_embeds, attention_mask, x, indices, unet_conditioning).argmax(dim=-1)
         torch.save(x,f'/home/node237/Code/mdlm-c2i/outputs/images/gen/gen-cfg-{config.generation_cfg}-{class_num}_s{num_steps}.pt')
         print(f'Tensor at {num_steps} steps saved.')
