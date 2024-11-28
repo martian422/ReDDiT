@@ -26,12 +26,13 @@ omegaconf.OmegaConf.register_new_resolver(
     'div_up', lambda x, y: (x + y - 1) // y)
 
 @torch.no_grad()
-def load_encoder_dinov2(encoder_dir):
-
+def load_encoder_dinov2(config):
+    encoder_dir= config.repa_loss.dino_model
+    latent_size = int(config.repa_loss.target_res / config.repa_loss.ds_ratio)
     encoder = torch.hub.load('facebookresearch/dinov2', encoder_dir)
     del encoder.head
     encoder.pos_embed.data = timm.layers.pos_embed.resample_abs_pos_embed(
-                encoder.pos_embed.data, [16, 16],
+                encoder.pos_embed.data, [latent_size, latent_size],
             )
     encoder.head = torch.nn.Identity()
 
@@ -157,7 +158,7 @@ def _train(config, logger):
     local_rank = int(os.getenv("LOCAL_RANK", 0))
     device = torch.device(f'cuda:{local_rank}')
     
-    dino_encoder = load_encoder_dinov2(config.repa_loss.dino_model)
+    dino_encoder = load_encoder_dinov2(config)
     dino_encoder = dino_encoder.to(device)
     for p in dino_encoder.parameters():
         p.requires_grad = False

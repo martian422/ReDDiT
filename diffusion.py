@@ -331,11 +331,13 @@ class Diffusion(L.LightningModule):
         
         attention_mask = (text_embeds[:,:,0]!=0).to(torch.int)
 
+        ls = int(self.config.repa_loss.target_res / self.config.repa_loss.ds_ratio)
+
         with torch.no_grad():
             with torch.amp.autocast('cuda', dtype=torch.bfloat16):
-                raw_images = self.vq.decode_code(image_tokens,[image_tokens.shape[0],8,16,16]) # remember to change for other resolution.
+                raw_images = self.vq.decode_code(image_tokens,[image_tokens.shape[0],8,ls,ls]) # remember to change for other resolution.
                 raw_images_ = Normalize(IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD)(raw_images)
-                raw_images_ = torch.nn.functional.interpolate(raw_images_, 224, mode='bicubic')
+                raw_images_ = torch.nn.functional.interpolate(raw_images_, self.config.repa_loss.target_res, mode='bicubic')
                 zs = self.dino.forward_features(raw_images_)
                 zs = zs['x_norm_patchtokens'] # [bs, 16*16, 768] 
 
