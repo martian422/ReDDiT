@@ -41,7 +41,7 @@ def get_dataset(
             image_tokens = np.load(image_file)
         except:
             image_tokens = np.load('/workspace/intern/liaomingxiang/ARG-MDM/laion-coco/01889/018890002-img.npy') ## FIXME
-        return dict(text=example['text'], image_tokens=image_tokens)
+        return dict(text=example['text'], image_tokens=image_tokens.astype(np.int32))
 
     if streaming:
         tokenized_dataset = data.map(
