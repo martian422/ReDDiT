@@ -538,6 +538,7 @@ class Diffusion(L.LightningModule):
         " TBD "
         return torch.randint(*self.mask_index_range, size=batch_dims, dtype=torch.int64)
 
+    @torch.no_grad()
     def _ddpm_caching_update_XX(self, input_ids, text_embeds, attention_mask, indices, x, t, dt, p_x0=None):
 
         assert self.config.noise.type == 'loglinear'
