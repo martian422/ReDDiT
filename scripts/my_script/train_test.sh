@@ -15,7 +15,7 @@ ulimit -n 65536
 
 CUDA_VISIBLE_DEVICES=0 torchrun \
     --nnodes=$WORLD_SIZE --node-rank=$RANK --nproc_per_node=1 \
-    --master_port=11456 \
+    --master_port=11451 \
     main.py \
     model=L-model-classic \
     data=llamaGen \
@@ -35,5 +35,5 @@ CUDA_VISIBLE_DEVICES=0 torchrun \
     sampling.steps=1000 \
     trainer.num_nodes=1 \
     loader.num_workers=64 \
-    loader.batch_size=32 \
+    loader.batch_size=8 \
     loader.global_batch_size=512 \

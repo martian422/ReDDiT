@@ -100,23 +100,17 @@ def generate_samples(config, logger):
             dt = (1 - eps) / num_steps
             p_x0_cache = None
 
-            input_ids = x.clone()
-
             labels=torch.tensor([[class_num]])
             text_embeds = model.lm.cls_embedding(labels.to(model.device)).repeat(bs,1,1)
             
             attention_mask = (text_embeds[:,:,0]!=0).to(torch.int).repeat(bs,1)
-            
-            indices = torch.arange(input_ids.shape[1],device = input_ids.device).repeat(input_ids.shape[0],1)
 
             for i in range(num_steps):
                 t = timesteps[i] * torch.ones(
                     x.shape[0], 1, device=model.device)
-                if model.sampler == 'ddpm':
-                    x = model._ddpm_update_XX(input_ids, indices, x, t, dt)
-                elif model.sampler == 'ddpm_cache':
+                if model.sampler == 'ddpm_cache':
                     p_x0_cache, x_next = model._ddpm_caching_update_XX(
-                        input_ids, text_embeds, attention_mask, indices, x, t, dt, p_x0=p_x0_cache)
+                        x, text_embeds, attention_mask, t, dt, p_x0=p_x0_cache)
                     if (not torch.allclose(x_next, x)
                             or model.time_conditioning):
                         # Disable caching
@@ -124,12 +118,16 @@ def generate_samples(config, logger):
                     x = x_next
                 else:
                     raise ValueError
-            # minor fix 
+            # final step for additional noise removal
+            t = timesteps[-1] * torch.ones(x.shape[0], 1, device=model.device)
+            _, x = model._ddpm_caching_update_XX(x, text_embeds, attention_mask, t, dt, p_x0=None)
+
             if x.max()>16383:
                 x[x>16383] = 16383
                 print(f'{class_num} has mistakes, corrected. Pay attention to this.')
-
+            
             x_decode = vq_model.decode_code(x,[x.shape[0],8,16,16])
+            x_decode = F.interpolate(x_decode, size=(256, 256), mode='bicubic')
             for k in range(bs):
                 # if you want to save the code.
                 # torch.save(x[k].unsqueeze(0), os.path.join(save_path_codes, f'gen-cfg-{config.generation_cfg}-c{class_num}_s{num_steps}_r{local_rank}_n{k}.pt'))
