@@ -14,6 +14,7 @@ import torch.nn.functional as F
 import dataloader_t2i as dataloader
 import diffusion
 import utils
+import random
 
 from llamaGen.vq_model import VQ_models
 
@@ -42,6 +43,11 @@ def generate_samples(config, logger):
 
     local_rank = int(os.getenv("LOCAL_RANK", 0))
     device = torch.device(f'cuda:{local_rank}')
+
+    rand_index = random.randint(1,999)
+    seed = rand_index
+    print(seed)
+    torch.manual_seed(seed)
 
     target_path = '/home/node237/Code/mdlm-c2i/outputs/to_evaluate'
     save_path_images = os.path.join(target_path, config.eval.mark, 'images')
@@ -80,7 +86,7 @@ def generate_samples(config, logger):
     eps=1e-5
     model.backbone.eval()
     model.noise.eval()
-    bs = 8
+    bs = 6
     class_nums=np.arange(1000)
 
     logger.info('Generating samples.')
@@ -127,14 +133,14 @@ def generate_samples(config, logger):
             for k in range(bs):
                 # if you want to save the code.
                 # torch.save(x[k].unsqueeze(0), os.path.join(save_path_codes, f'gen-cfg-{config.generation_cfg}-c{class_num}_s{num_steps}_r{local_rank}_n{k}.pt'))
-                save_image(x_decode[k], os.path.join(save_path_images, f"c-{class_num}-r{local_rank}-n{j}.png"), normalize=True, value_range=(-1, 1))
+                save_image(x_decode[k], os.path.join(save_path_images, f"c-{class_num}-s{seed}-n{k}.png"), normalize=True, value_range=(-1, 1))
 
     return 0
 
 @hydra.main(version_base=None, config_path='configs', config_name='config')
 def main(config):
     """Main entry point for training."""
-    L.seed_everything(config.seed)
+    # L.seed_everything(config.seed)
     logger = utils.get_logger(__name__)
 
     generate_samples(config, logger)
