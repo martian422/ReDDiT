@@ -402,32 +402,19 @@ class LlamaGen(PreTrainedModel):
                 mask = self.causal_mask[:bs, None, input_pos]
                 # breakpoint()
                 
-        if self.training:
-            freqs_cis = self.freqs_cis[:inputs_embeds.shape[1]]
-        else:
-            freqs_cis = self.freqs_cis[input_pos]
+        freqs_cis = self.freqs_cis[input_pos]
         # modify the masks, please!
         # transformer blocks
         for layer in self.layers:
             h = layer(h, freqs_cis, input_pos, mask)
         
         # output layers
-        h = self.norm(h)
-        logits = self.output(h).float()
-        if self.training:
-            logits = logits[:, self.cls_token_num - 1:].contiguous()
+        h_final = self.norm(h) # [bs, N+1(257), hidden_size]
 
-        # if we are given some desired targets also calculate the loss
-        loss = None
-        if valid is not None:
-            loss_all = F.cross_entropy(logits.view(-1, logits.size(-1)), targets.view(-1), reduction='none')
-            valid_all = valid[:,None].repeat(1, targets.shape[1]).view(-1)
-            loss = (loss_all * valid_all).sum() / max(valid_all.sum(), 1)
-        elif targets is not None:
-            loss = F.cross_entropy(logits.view(-1, logits.size(-1)), targets.view(-1))
-
+        logits = self.output(h_final).float()
         #logits=[sample*2, 1, 16384]
-        return logits, loss
+        
+        return logits, h_final
 
 
     def get_fsdp_wrap_module_list(self) -> List[nn.Module]:

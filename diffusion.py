@@ -580,7 +580,6 @@ class Diffusion(L.LightningModule):
             move_chance = 1 - torch.exp(-sigma[:, None])
 
         xt = self.q_xt(x0, move_chance) # noised input_ids
-        breakpoint()
 
         model_output, zs_tilde = self.forward(
             xt, text_embeds, attention_mask, unet_conditioning)
