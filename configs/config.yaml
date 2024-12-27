@@ -48,10 +48,11 @@ sampling:
   steps: 100
   noise_removal: True
   return_intermediate: 0
-  # TODO(yair): @subham, why aren't these params under `eval`?
   num_sample_batches: 2  # Total samples: `num_gpus` * `loader.eval_batch_size` * num_sample_batches
   num_sample_log: 2
   semi_ar: False
+  cfg_schedule: const
+  cfg_offset: 1.5
   stride_length: 1
   num_strides: 1
 

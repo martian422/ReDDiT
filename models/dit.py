@@ -201,8 +201,6 @@ class TimestepEmbedder(nn.Module):
 
 class LabelEmbedder(nn.Module):
     """Embeds class labels into vector representations.
-    
-    Also handles label dropout for classifier-free guidance.
     """
     def __init__(self, num_classes, cond_size):
         super().__init__()
@@ -217,7 +215,7 @@ class LabelEmbedder(nn.Module):
         
 
 #################################################################################
-#                                 Core Model                                    #
+#                                 Core d-DIT Model                                    #
 #################################################################################
 
 
@@ -344,8 +342,9 @@ class DIT(nn.Module, huggingface_hub.PyTorchModelHubMixin):
         self.vocab_size = vocab_size
 
         self.vocab_embed = EmbeddingLayer(config.model.hidden_size, vocab_size)
-        self.logit_embed = nn.Linear(
-            self.lm_vocab_size, config.model.hidden_size, bias=False)
+        # self.label_embed = nn.Linear(
+        #     1024, config.model.hidden_size, bias=False) # 1024->1280
+        self.label_embed = LabelEmbedder(1000, config.model.cond_dim)
         self.sigma_map = TimestepEmbedder(config.model.cond_dim)
         self.rotary_emb = Rotary(
             config.model.hidden_size // config.model.n_heads)
@@ -379,17 +378,19 @@ class DIT(nn.Module, huggingface_hub.PyTorchModelHubMixin):
         else:
             return bias_dropout_add_scale_fused_inference
 
-    def forward(self, logits, indices, sigma):
+    def forward(self, labels, indices, sigma): # y, x, t
         with torch.amp.autocast('cuda',dtype=torch.bfloat16):
-            x = self.vocab_embed(indices) + self.logit_embed(logits) # [bs, psz**2, hidden_size]
-            c = F.silu(self.sigma_map(sigma))
+            x = self.vocab_embed(indices)  # [bs, psz**2, hidden_size]
+            y = self.label_embed(labels)
+            t = self.sigma_map(sigma)
+            c = t + y # removed additional silu, as we donot know what for.
             rotary_cos_sin = self.rotary_emb(x)
             N, T, D = x.shape
             for i in range(len(self.blocks)):
                 x = self.blocks[i](x, rotary_cos_sin, c, seqlens=None)
-                if i+1==len(self.blocks) and self.training:
+                if i+1==len(self.blocks) and self.training and self.config.repa_loss.use_repa==True:
                     zs = [projector(x.reshape(-1, D)).reshape(N, T, -1) for projector in self.projectors]
-                elif self.training == False:
-                    zs = None
+            if self.config.repa_loss.use_repa==False or self.training==False:
+                zs = None
             x = self.output_layer(x, c)
         return x, zs

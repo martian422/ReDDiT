@@ -1,7 +1,7 @@
 name: L-model-classic
 type: ddit
 hidden_size: 1024
-cond_dim: 2
+cond_dim: 128
 length: 256
 n_blocks: 24
 n_heads: 16

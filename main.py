@@ -158,26 +158,31 @@ def _train(config, logger):
     local_rank = int(os.getenv("LOCAL_RANK", 0))
     device = torch.device(f'cuda:{local_rank}')
     
-    dino_encoder = load_encoder_dinov2(config)
-    dino_encoder = dino_encoder.to(device)
-    for p in dino_encoder.parameters():
-        p.requires_grad = False
-    dino_encoder.eval()
+    if config.repa_loss.use_repa==True:
+        dino_encoder = load_encoder_dinov2(config)
+        dino_encoder = dino_encoder.to(device)
+        for p in dino_encoder.parameters():
+            p.requires_grad = False
+        dino_encoder.eval()
 
-    vq_model = VQ_models["VQ-16"](
-        codebook_size=16384,
-        codebook_embed_dim=8)
-    vq_model.to(device)
-    vq_model.eval()
-    checkpoint = torch.load(config.repa_loss.vq_ckpt, map_location="cpu")
-    vq_model.load_state_dict(checkpoint["model"])
+        vq_model = VQ_models["VQ-16"](
+            codebook_size=16384,
+            codebook_embed_dim=8)
+        vq_model.to(device)
+        vq_model.eval()
+        checkpoint = torch.load(config.repa_loss.vq_ckpt, map_location="cpu")
+        vq_model.load_state_dict(checkpoint["model"])
 
-    del checkpoint
+        del checkpoint
 
-    for p in vq_model.parameters():
-        p.requires_grad = False
+        for p in vq_model.parameters():
+            p.requires_grad = False
 
-    print(f"image tokenizer is loaded")
+        print(f"image tokenizer is loaded")
+    else:
+        dino_encoder=None
+        vq_model=None
+        print(f"image tokenizer is skipped")
 
     model = diffusion.Diffusion(config, dino_encoder, vq_model)
 

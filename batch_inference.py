@@ -44,12 +44,14 @@ def generate_samples(config, logger):
     local_rank = int(os.getenv("LOCAL_RANK", 0))
     device = torch.device(f'cuda:{local_rank}')
 
-    rand_index = random.randint(1,999)
-    seed = rand_index
+    rand_index0 = random.randint(1,9)
+    rand_index1 = 10* random.randint(1,9)
+    rand_index2 = 100 * random.randint(1,9)
+    seed = rand_index0 + rand_index1 + rand_index2
     print(seed)
     torch.manual_seed(seed)
 
-    target_path = '/home/node237/Code/mdlm-c2i/outputs/to_evaluate'
+    target_path = '/home/node237/Code/ddit-c2i/outputs/to_evaluate'
     save_path_images = os.path.join(target_path, config.eval.mark, 'images')
     save_path_codes = os.path.join(target_path, config.eval.mark, 'codes')
 
@@ -87,30 +89,34 @@ def generate_samples(config, logger):
     model.backbone.eval()
     model.noise.eval()
     bs = 6
+    # class_nums = [207, 360, 387, 974, 88, 979, 417, 279]
     class_nums=np.arange(1000)
 
     logger.info('Generating samples.')
 
     for class_num in tqdm(class_nums):
-        for i in [50]:
+        for i in [100]:
+            # if config.generation_cfg > 1:
+            #     labels_cond=torch.tensor([[class_num]]).repeat(bs,1).to(model.device)
+            #     labels_uncond = torch.zeros_like(labels_cond) + 1000
+            #     labels = torch.cat([labels_cond, labels_uncond])
+            #     bs_all = bs * 2
+            # else:
+            labels = torch.tensor([[class_num]]).repeat(bs,1).to(model.device)
+            bs_all = bs
             num_steps = i
             timesteps = torch.linspace(1, eps, num_steps + 1, device=model.device)
-            x = model._sample_prior_XX(bs, model.config.model.length).to(model.device)
+            x = model._sample_prior_XX(bs_all, model.config.model.length).to(model.device)
             # x.shape= bs 256
             dt = (1 - eps) / num_steps
             p_x0_cache = None
-
-            labels=torch.tensor([[class_num]])
-            text_embeds = model.lm.cls_embedding(labels.to(model.device)).repeat(bs,1,1)
-            
-            attention_mask = (text_embeds[:,:,0]!=0).to(torch.int).repeat(bs,1)
 
             for i in range(num_steps):
                 t = timesteps[i] * torch.ones(
                     x.shape[0], 1, device=model.device)
                 if model.sampler == 'ddpm_cache':
-                    p_x0_cache, x_next = model._ddpm_caching_update_XX(
-                        x, text_embeds, attention_mask, t, dt, p_x0=p_x0_cache)
+                    p_x0_cache, x_next = model._ddpm_caching_update_custom(
+                        x, labels, t, dt, p_x0=p_x0_cache)
                     if (not torch.allclose(x_next, x)
                             or model.time_conditioning):
                         # Disable caching
@@ -118,16 +124,13 @@ def generate_samples(config, logger):
                     x = x_next
                 else:
                     raise ValueError
-            # final step for additional noise removal
-            t = timesteps[-1] * torch.ones(x.shape[0], 1, device=model.device)
-            _, x = model._ddpm_caching_update_XX(x, text_embeds, attention_mask, t, dt, p_x0=None)
 
             if x.max()>16383:
                 x[x>16383] = 16383
                 print(f'{class_num} has mistakes, corrected. Pay attention to this.')
             
             x_decode = vq_model.decode_code(x,[x.shape[0],8,16,16])
-            x_decode = F.interpolate(x_decode, size=(256, 256), mode='bicubic')
+            # x_decode = F.interpolate(x_decode, size=(256, 256), mode='bicubic')
             for k in range(bs):
                 # if you want to save the code.
                 # torch.save(x[k].unsqueeze(0), os.path.join(save_path_codes, f'gen-cfg-{config.generation_cfg}-c{class_num}_s{num_steps}_r{local_rank}_n{k}.pt'))
