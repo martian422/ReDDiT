@@ -346,8 +346,7 @@ class DIT(nn.Module, huggingface_hub.PyTorchModelHubMixin):
         #     1024, config.model.hidden_size, bias=False) # 1024->1280
         self.label_embed = LabelEmbedder(1000, config.model.cond_dim)
         self.sigma_map = TimestepEmbedder(config.model.cond_dim)
-        self.rotary_emb = Rotary(
-            config.model.hidden_size // config.model.n_heads)
+        self.rotary_emb = Rotary(config.model.hidden_size // config.model.n_heads)
 
         blocks = []
         for _ in range(config.model.n_blocks):

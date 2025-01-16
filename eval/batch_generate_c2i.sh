@@ -4,7 +4,7 @@ set -x
 export WANDB_DISABLED=true
 export PYTHONPATH=$PYTHONPATH:/home/node237/Code/ddit-c2i
 
-MODEL_PATH=/home/node237/Code/ddit-c2i/outputs/c2i-dditrepa-L-m1-s500-bs512/2024.12.05/203015/checkpoints/107-270000.ckpt
+MODEL_PATH=/home/node237/Code/ddit-c2i/outputs/c2i-dditrepa-L-m1-s500-bs512/2024.12.05/203015/checkpoints/103-260000.ckpt
 
 for GPU_ID in {0..7}; do
     CUDA_VISIBLE_DEVICES=$GPU_ID \
@@ -15,14 +15,16 @@ for GPU_ID in {0..7}; do
     backbone=dit \
     data=llamaGen \
     mask_vocab_size=1 \
-    generation_cfg=2.5 \
+    generation_cfg=3.0 \
     ar_cfg=False \
+    noise=loglinear \
     loader.eval_batch_size=1 \
-    eval.mark=ddit-e107-s100-const25 \
+    eval.mark=v1-ddit-e103-s50-linear2to3 \
+    eval.mode=all \
     eval.checkpoint_path=$MODEL_PATH \
     eval.compute_generative_perplexity=False \
     eval.disable_ema=True \
-    sampling.cfg_schedule=const \
+    sampling.cfg_schedule=biaslinear \
     sampling.cfg_offset=2.0 \
     sampling.predictor=ddpm_cache \
     sampling.steps=10 \

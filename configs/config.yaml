@@ -65,6 +65,7 @@ training:
 
 eval:
   mark: None
+  mode: sample
   checkpoint_path: ''  # Used to evaluate a checkpoint after training.
   disable_ema: False
   compute_generative_perplexity: False

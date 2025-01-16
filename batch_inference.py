@@ -89,13 +89,18 @@ def generate_samples(config, logger):
     model.backbone.eval()
     model.noise.eval()
     bs = 6
-    # class_nums = [207, 360, 387, 974, 88, 979, 417, 279]
-    class_nums=np.arange(1000)
+    if config.eval.mode=="all":
+        class_nums=np.arange(1000)
+    elif config.eval.mode=="sample":
+        class_nums = [207, 360, 387, 974, 88, 979, 417, 279]
+    else:
+        print('Not specified, have a look at our fish!')
+        class_nums=[0,1]
 
     logger.info('Generating samples.')
 
     for class_num in tqdm(class_nums):
-        for i in [100]:
+        for i in [50]:
             # if config.generation_cfg > 1:
             #     labels_cond=torch.tensor([[class_num]]).repeat(bs,1).to(model.device)
             #     labels_uncond = torch.zeros_like(labels_cond) + 1000
@@ -115,7 +120,7 @@ def generate_samples(config, logger):
                 t = timesteps[i] * torch.ones(
                     x.shape[0], 1, device=model.device)
                 if model.sampler == 'ddpm_cache':
-                    p_x0_cache, x_next = model._ddpm_caching_update_custom(
+                    p_x0_cache, x_next = model._ddpm_update_v1(
                         x, labels, t, dt, p_x0=p_x0_cache)
                     if (not torch.allclose(x_next, x)
                             or model.time_conditioning):
@@ -124,6 +129,9 @@ def generate_samples(config, logger):
                     x = x_next
                 else:
                     raise ValueError
+            
+            # final again for noise removal?
+            _, x = model._ddpm_update_v1(x, labels, t, dt, p_x0=None)
 
             if x.max()>16383:
                 x[x>16383] = 16383
