@@ -120,18 +120,14 @@ def generate_samples(config, logger):
                 t = timesteps[i] * torch.ones(
                     x.shape[0], 1, device=model.device)
                 if model.sampler == 'ddpm_cache':
-                    p_x0_cache, x_next = model._ddpm_update_v1(
-                        x, labels, t, dt, p_x0=p_x0_cache)
-                    if (not torch.allclose(x_next, x)
-                            or model.time_conditioning):
-                        # Disable caching
-                        p_x0_cache = None
+                    _, x_next = model._ddpm_update_v1_1(
+                        x, labels, t, dt, p_x0=None)
                     x = x_next
                 else:
                     raise ValueError
             
             # final again for noise removal?
-            _, x = model._ddpm_update_v1(x, labels, t, dt, p_x0=None)
+            _, x = model._ddpm_update_v1_1(x, labels, t, dt, p_x0=None)
 
             if x.max()>16383:
                 x[x>16383] = 16383

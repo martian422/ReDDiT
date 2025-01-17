@@ -2,6 +2,7 @@
 set -x
 
 export WANDB_DISABLED=true
+export CUDA_LAUNCH_BLOCKING=1
 export PYTHONPATH=$PYTHONPATH:/home/node237/Code/ddit-c2i
 
 MODEL_PATH=/home/node237/Code/ddit-c2i/outputs/c2i-dditrepa-L-m1-s500-bs512/2024.12.05/203015/checkpoints/103-260000.ckpt
@@ -17,7 +18,7 @@ CUDA_VISIBLE_DEVICES=0 \
     generation_cfg=2.5 \
     ar_cfg=False \
     loader.eval_batch_size=1 \
-    eval.mark=ddit-test \
+    eval.mark=ddit-test_v11 \
     eval.mode=sample \
     eval.checkpoint_path=$MODEL_PATH \
     eval.compute_generative_perplexity=False \

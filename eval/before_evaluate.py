@@ -26,4 +26,4 @@ def create_npz_from_sample_folder(sample_dir_o, num=48000):
     print(f"Saved .npz file to {npz_path} [shape={samples.shape}].")
     return npz_path
 
-create_npz_from_sample_folder('/home/node237/Code/ddit-c2i/outputs/to_evaluate/v1-ddit-e103-s20-linear2to3')
+create_npz_from_sample_folder('/home/node237/Code/ddit-c2i/outputs/to_evaluate/v1-ddit-e103-s50-bettercfg2')

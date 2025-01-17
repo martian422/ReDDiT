@@ -13,6 +13,7 @@ mask_vocab_size: 128
 ar_cfg: False
 generation_cfg: 7.5
 batch_drop_out: 0.1
+carry_over: True
 
 repa_loss:
   target_res: 224
@@ -27,7 +28,7 @@ mode: train  # train / ppl_eval / sample_eval
 diffusion: absorbing_state
 backbone: dit  # dit / dimamba / ar
 parameterization: subs  # subs / d3pm / sedd
-time_conditioning: True
+time_conditioning: False
 T: 0  # 0 (continuous time) / 1000 
 subs_masking: False
 
