@@ -367,7 +367,7 @@ class Diffusion(L.LightningModule):
         logits, zs = self.backbone(labels, xt, sigma) # y x t
         
         # logits[:, :, self.mask_index_range[0]:] += self.neg_infinity
-        logits = logits / self.logit_temp # add temperature
+        logits = logits / self.config.logit_temp # add temperature
 
         logits = logits - torch.logsumexp(logits, dim=-1, keepdim=True)
 

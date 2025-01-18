@@ -5,7 +5,7 @@ export WANDB_DISABLED=true
 export CUDA_LAUNCH_BLOCKING=1
 export PYTHONPATH=$PYTHONPATH:/home/node237/Code/ddit-c2i
 
-MODEL_PATH=/home/node237/Code/ddit-c2i/outputs/c2i-dditrepa-L-m1-s500-bs512/2024.12.05/203015/checkpoints/103-260000.ckpt
+MODEL_PATH=/home/node237/Code/ddit-c2i/outputs/c2i-ddit-L-m1-d3pm/2025.01.17/215210/checkpoints/39-100000.ckpt
 
 CUDA_VISIBLE_DEVICES=0 \
     python batch_inference.py \
@@ -16,9 +16,10 @@ CUDA_VISIBLE_DEVICES=0 \
     data=llamaGen \
     mask_vocab_size=1 \
     generation_cfg=2.5 \
+    logit_temp=1.05 \
     ar_cfg=False \
     loader.eval_batch_size=1 \
-    eval.mark=ddit-test_v11 \
+    eval.mark=ddit-d3pm-test-temp \
     eval.mode=sample \
     eval.checkpoint_path=$MODEL_PATH \
     eval.compute_generative_perplexity=False \
