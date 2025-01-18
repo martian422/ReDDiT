@@ -14,6 +14,7 @@ ar_cfg: False
 generation_cfg: 7.5
 batch_drop_out: 0.1
 carry_over: True
+logit_temp: 1.0
 
 repa_loss:
   target_res: 224
