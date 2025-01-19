@@ -44,11 +44,8 @@ def generate_samples(config, logger):
     local_rank = int(os.getenv("LOCAL_RANK", 0))
     device = torch.device(f'cuda:{local_rank}')
 
-    rand_index0 = random.randint(1,9)
-    rand_index1 = 10* random.randint(1,9)
-    rand_index2 = 100 * random.randint(1,9)
-    seed = rand_index0 + rand_index1 + rand_index2
-    print(seed)
+    # print(seed)
+    seed = 100 + config.seed
     torch.manual_seed(seed)
 
     target_path = '/home/node237/Code/ddit-c2i/outputs/to_evaluate'
@@ -99,8 +96,10 @@ def generate_samples(config, logger):
 
     logger.info('Generating samples.')
 
+    sample_step = config.sampling.steps
+
     for class_num in tqdm(class_nums):
-        for i in [50]:
+        for i in [sample_step]:
             # if config.generation_cfg > 1:
             #     labels_cond=torch.tensor([[class_num]]).repeat(bs,1).to(model.device)
             #     labels_uncond = torch.zeros_like(labels_cond) + 1000
@@ -145,7 +144,8 @@ def generate_samples(config, logger):
 @hydra.main(version_base=None, config_path='configs', config_name='config')
 def main(config):
     """Main entry point for training."""
-    # L.seed_everything(config.seed)
+    L.seed_everything(config.seed)
+    print(f'current seed is {config.seed}')
     logger = utils.get_logger(__name__)
 
     generate_samples(config, logger)

@@ -2,10 +2,18 @@
 set -x
 
 export WANDB_DISABLED=true
-export CUDA_LAUNCH_BLOCKING=1
+# export CUDA_LAUNCH_BLOCKING=1
 export PYTHONPATH=$PYTHONPATH:/home/node237/Code/ddit-c2i
 
 MODEL_PATH=/home/node237/Code/ddit-c2i/outputs/c2i-ddit-L-m1-d3pm/2025.01.17/215210/checkpoints/39-100000.ckpt
+
+CFG_SCALE=2
+SAMPLE_STEP=50
+EPOCH=$(echo "$MODEL_PATH" | sed -E 's#.*/([^/]+)-.*#\1#')
+
+echo "evaluating model nickname: $1"
+echo "current sampling step: $SAMPLE_STEP, with cfg = $CFG_SCALE at epoch $EPOCH."
+NAME=$1
 
 CUDA_VISIBLE_DEVICES=0 \
     python batch_inference.py \
@@ -15,11 +23,13 @@ CUDA_VISIBLE_DEVICES=0 \
     backbone=dit \
     data=llamaGen \
     mask_vocab_size=1 \
-    generation_cfg=2.5 \
-    logit_temp=1.05 \
+    generation_cfg=$CFG_SCALE \
     ar_cfg=False \
+    seed=1 \
+    noise=loglinear \
+    time_conditioning=True \
     loader.eval_batch_size=1 \
-    eval.mark=ddit-d3pm-test-temp \
+    eval.mark=$NAME-e$EPOCH-s$SAMPLE_STEP-cfg$CFG_SCALE \
     eval.mode=sample \
     eval.checkpoint_path=$MODEL_PATH \
     eval.compute_generative_perplexity=False \
@@ -27,6 +37,6 @@ CUDA_VISIBLE_DEVICES=0 \
     sampling.cfg_schedule=const \
     sampling.cfg_offset=2.0 \
     sampling.predictor=ddpm_cache \
-    sampling.steps=10 \
+    sampling.steps=$SAMPLE_STEP \
     sampling.return_intermediate=0 \
     sampling.num_sample_batches=1 \
