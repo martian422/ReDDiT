@@ -6,13 +6,14 @@ export PYTHONPATH=$PYTHONPATH:/home/node237/Code/ddit-c2i
 
 MODEL_PATH=/home/node237/Code/ddit-c2i/outputs/c2i-ddit-L-m1-d3pm/2025.01.17/215210/checkpoints/39-100000.ckpt
 
-CFG_SCALE=2.0
+CFG_SCALE=2
 SAMPLE_STEP=50
 EPOCH=$(echo "$MODEL_PATH" | sed -E 's#.*/([^/]+)-.*#\1#')
 
-echo "evaluating model nickname: $1"
+NAME=${1:-"NOBODY"}
+
+echo "evaluating model nickname: $NAME"
 echo "current sampling step: $SAMPLE_STEP, with cfg = $CFG_SCALE at epoch $EPOCH."
-NAME=$1
 
 for GPU_ID in {0..7}; do
     CUDA_VISIBLE_DEVICES=$GPU_ID \
