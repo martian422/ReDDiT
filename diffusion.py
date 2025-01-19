@@ -359,7 +359,7 @@ class Diffusion(L.LightningModule):
         return self._subs_parameterization_with_repa(logits=logits, xt=xt, zs_tilde = zs_tilde)
     
     def sample_forward(self, xt, labels, sigma):
-        """dit sample, skip zero-mask."""
+        """dit sample, skipping zero-mask now."""
 
         sigma = self._process_sigma(sigma)
          # equals to [bs] of zero if time_conditioning is false.

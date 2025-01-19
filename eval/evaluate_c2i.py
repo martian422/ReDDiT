@@ -11,6 +11,8 @@ from multiprocessing import cpu_count
 from multiprocessing.pool import ThreadPool
 from typing import Iterable, Optional, Tuple
 
+from PIL import Image
+
 import numpy as np
 import requests
 import tensorflow.compat.v1 as tf
@@ -24,11 +26,13 @@ FID_POOL_NAME = "pool_3:0"
 FID_SPATIAL_NAME = "mixed_6/conv:0"
 
 
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("ref_batch", help="path to reference batch npz file")
-    parser.add_argument("sample_batch", help="path to sample batch npz file")
-    args = parser.parse_args()
+def main(ref_batch = None, sample_batch=None):
+    class args_store:
+        def __init__(self, ref_batch, sample_batch):
+            self.ref_batch = ref_batch
+            self.sample_batch = sample_batch
+
+    args = args_store(ref_batch=ref_batch, sample_batch=sample_batch)
 
     config = tf.ConfigProto(
         allow_soft_placement=True  # allows DecodeJpeg to run on CPU in Inception graph
@@ -660,6 +664,30 @@ def _numpy_partition(arr, kth, **kwargs):
     with ThreadPool(num_workers) as pool:
         return list(pool.map(partial(np.partition, kth=kth, **kwargs), batches))
 
+def create_npz_from_sample_folder(sample_dir_o, num=48000):
+    """
+    Builds a single .npz file from a folder of .png samples.
+    """
+    sample_dir = os.path.join(sample_dir_o, 'images')
+    samples = []
+    for file in tqdm(os.listdir(sample_dir)):
+        if file.endswith(('.png')) :
+            sample_pil = Image.open(f"{sample_dir}/{file}")
+            sample_np = np.asarray(sample_pil).astype(np.uint8)
+            samples.append(sample_np)
+    samples = np.stack(samples)
+    assert samples.shape == (num, samples.shape[1], samples.shape[2], 3)
+    sample_name = sample_dir_o.split('/')[-1] + '.npz'
+    npz_path = os.path.join(sample_dir_o, sample_name)
+    np.savez(npz_path, arr_0=samples)
+    print(f"Saved .npz file to {npz_path} [shape={samples.shape}].")
+    return npz_path
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("-r", "--ref_batch", help="path to reference batch npz file", default='/home/node237/VIRTUAL_imagenet256_labeled.npz')
+    parser.add_argument("-s", "--sample_folder", help="path to sample folder that contains images folder", default=None)
+    args = parser.parse_args()
+    target_npz_file = create_npz_from_sample_folder(args.sample_folder)
+
+    main(ref_batch = args.ref_batch, sample_batch = target_npz_file)

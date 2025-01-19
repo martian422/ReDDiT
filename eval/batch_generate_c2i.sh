@@ -20,7 +20,7 @@ for GPU_ID in {0..7}; do
     noise=loglinear \
     time_conditioning=True \
     loader.eval_batch_size=1 \
-    eval.mark=d3pm-v1-ddit-e40-s50-cfg2 \
+    eval.mark=d3pm-v1re-ddit-e40-s50-cfg2 \
     eval.mode=all \
     eval.checkpoint_path=$MODEL_PATH \
     eval.compute_generative_perplexity=False \
