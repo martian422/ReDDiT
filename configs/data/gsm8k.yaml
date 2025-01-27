@@ -1,5 +1,0 @@
-train: gsm8k
-valid: gsm8k
-tokenizer_name_or_path: /share/project/models/llama_collections/llama-2-7b-chat-hf
-cache_dir: None
-streaming: False

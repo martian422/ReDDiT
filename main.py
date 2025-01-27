@@ -8,7 +8,7 @@ import rich.syntax
 import rich.tree
 import torch
 
-import dataloader_t2i as dataloader
+import dataloader_c2i as dataloader
 import diffusion
 import utils
 import timm
@@ -101,35 +101,6 @@ def _print_batch(train_ds, valid_ds, tokenizer, k=8):
         print('ids:', last)
         print(f'{batch["input_length"]=}')
 
-
-def _ppl_eval(config, logger, tokenizer):
-    logger.info('Starting Zero Shot Eval.')
-
-    model = _load_from_checkpoint(config=config, tokenizer=tokenizer)
-    if config.eval.disable_ema:
-        logger.info('Disabling EMA.')
-        model.ema = None
-
-    wandb_logger = None
-    if config.get('wandb', None) is not None:
-        wandb_logger = L.pytorch.loggers.WandbLogger(
-            config=omegaconf.OmegaConf.to_object(config),
-            ** config.wandb)
-    callbacks = []
-    if 'callbacks' in config:
-        for _, callback in config.callbacks.items():
-            callbacks.append(hydra.utils.instantiate(callback))
-    trainer = hydra.utils.instantiate(
-        config.trainer,
-        default_root_dir=os.getcwd(),
-        callbacks=callbacks,
-        strategy=hydra.utils.instantiate(config.strategy),
-        logger=wandb_logger)
-    _, valid_ds = dataloader.get_dataloaders(
-        config, tokenizer, skip_train=True, valid_seed=config.seed)
-    trainer.validate(model, valid_ds)
-
-
 def _train(config, logger):
     logger.info('Starting Training.')
     wandb_logger = None
@@ -145,6 +116,69 @@ def _train(config, logger):
         ckpt_path = config.checkpointing.resume_ckpt_path
     else:
         ckpt_path = None
+
+    # Lightning callbacks
+    callbacks = []
+    if 'callbacks' in config:
+        for _, callback in config.callbacks.items():
+            callbacks.append(hydra.utils.instantiate(callback))
+
+    train_ds, valid_ds = dataloader.get_dataloaders(
+        config)
+    
+    local_rank = int(os.getenv("LOCAL_RANK", 0))
+    device = torch.device(f'cuda:{local_rank}')
+    
+    if config.repa_loss.use_repa==True:
+        dino_encoder = load_encoder_dinov2(config)
+        dino_encoder = dino_encoder.to(device)
+        for p in dino_encoder.parameters():
+            p.requires_grad = False
+        dino_encoder.eval()
+
+        if config.data.type != 'llamaGen-both':
+
+            vq_model = VQ_models["VQ-16"](
+                codebook_size=16384,
+                codebook_embed_dim=8)
+            vq_model.to(device)
+            vq_model.eval()
+            checkpoint = torch.load(config.repa_loss.vq_ckpt, map_location="cpu")
+            vq_model.load_state_dict(checkpoint["model"])
+
+            del checkpoint
+
+            for p in vq_model.parameters():
+                p.requires_grad = False
+
+            print(f"image tokenizer is loaded")
+        else:
+            vq_model=None
+            print("image detokenizer skipped")
+
+    else:
+        dino_encoder=None
+        vq_model=None
+        print(f"image tokenizer is skipped")
+
+    model = diffusion.Diffusion(config, dino_encoder, vq_model)
+
+    # print('the local rank is:', device)
+    # print('the tokenizer rank is:', model.tokenizer.model.device)
+
+    trainer = hydra.utils.instantiate(
+        config.trainer,
+        default_root_dir=os.getcwd(),
+        callbacks=callbacks,
+        strategy=hydra.utils.instantiate(config.strategy),
+        logger=wandb_logger)
+
+
+    trainer.fit(model, train_ds, valid_ds, ckpt_path=ckpt_path)
+
+def _debug(config, logger):
+    logger.info('Starting Training.')
+    ckpt_path = None
 
     # Lightning callbacks
     callbacks = []
@@ -194,11 +228,10 @@ def _train(config, logger):
         default_root_dir=os.getcwd(),
         callbacks=callbacks,
         strategy=hydra.utils.instantiate(config.strategy),
-        logger=wandb_logger)
+        logger=None)
 
 
     trainer.fit(model, train_ds, valid_ds, ckpt_path=ckpt_path)
-
 
 @hydra.main(version_base=None, config_path='configs', config_name='config')
 def main(config):
@@ -209,8 +242,8 @@ def main(config):
     logger = utils.get_logger(__name__)
     # tokenizer = dataloader.get_tokenizer(config)
 
-    if config.mode == 'ppl_eval':
-        _ppl_eval(config, logger)
+    if config.mode == 'debug':
+        _debug(config, logger)
     else:
         _train(config, logger)
 

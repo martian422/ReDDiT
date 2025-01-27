@@ -341,6 +341,14 @@ class DIT(nn.Module, huggingface_hub.PyTorchModelHubMixin):
         self.lm_vocab_size = lm_vocab_size
         self.vocab_size = vocab_size
 
+        # print(f'Current state = {self.config.mode}.')
+        if (self.config.mode != 'train' and self.config.mode != 'debug'):
+            self.training = False
+            print(f'Current state = {self.config.mode}, set to eval mode.')
+        else:
+            self.training = True
+            print(f'Current state = {self.config.mode}.')
+
         self.vocab_embed = EmbeddingLayer(config.model.hidden_size, vocab_size)
         # self.label_embed = nn.Linear(
         #     1024, config.model.hidden_size, bias=False) # 1024->1280
@@ -357,12 +365,14 @@ class DIT(nn.Module, huggingface_hub.PyTorchModelHubMixin):
                 dropout=config.model.dropout))
         self.blocks = nn.ModuleList(blocks)
 
+        
         # introducing repa:
-        if self.config.repa_loss.use_repa==True and self.training:
+        # breakpoint()
+        if (self.config.repa_loss.use_repa==True and self.config.mode!='eval'):
             self.projectors = nn.ModuleList([
                 build_mlp(self.config.model.hidden_size, self.config.repa_loss.projector_dim, self.config.repa_loss.z_dim)])
         else:
-            print('Inferencing, skip alignment.')
+            print('RepA disabled, skip loading.')
             self.projectors = None
 
         self.output_layer = DDitFinalLayer(

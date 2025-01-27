@@ -11,34 +11,31 @@ import numpy as np
 
 LOGGER = utils.get_logger(__name__)
 
+from torchvision import transforms
+import numpy as np
+from PIL import Image
+
 import torch.distributed as dist
 
-def get_dataset(
+def get_dataset_from_token(
     dataset_path, 
     image_token_dir,
-    cache_dir='/workspace/intern/liaomingxiang/ARG-MDM/data/cache', 
     num_proc=len(os.sched_getaffinity(0)), 
     streaming=True,
 ):
+    "from tokens"
 
     data = datasets.load_from_disk(dataset_path)
 
 
-    def preprocess(text):
-        return re.sub(r'<<.*?>>', '', text)
-
     def preprocess_and_tokenize(example):
 
         image_dir = image_token_dir
-        # my_tokenizer=tokenizer.copy()
-        # 'not streaming' will cache the embeddings, make sure there is enough space left on your disk.
-        # about 500k per image-text pair
-        # caption_embs, emb_masks = my_tokenizer.get_text_embeddings(example['text']) 
-        # valid_caption_embs = caption_embs[:, :emb_masks.sum()]
-        # text_embeds = valid_caption_embs.to(torch.float32)
-        image_file = os.path.join(image_dir, example['image_tokens'])
+        
+        image_token_file = os.path.join(image_dir, example['image_tokens'])
+        # image_file = os.path.join(image_dir, example['image_tokens'])
         try:
-            image_tokens = np.load(image_file)
+            image_tokens = np.load(image_token_file)
         except:
             image_tokens = np.load('/workspace/intern/liaomingxiang/ARG-MDM/laion-coco/01889/018890002-img.npy') ## FIXME
         return dict(text=example['text'], image_tokens=image_tokens.astype(np.int32))
@@ -54,37 +51,80 @@ def get_dataset(
 
     return tokenized_dataset
 
+def get_dataset_from_image(
+    dataset_path, 
+    imagenet_dir,
+    num_proc=len(os.sched_getaffinity(0)), 
+    streaming=False,
+):
+    "from images"
 
-def get_tokenizer_old(config):
+    data = datasets.load_from_disk(dataset_path)
 
-    tokenizer = transformers.AutoTokenizer.from_pretrained(
-        config.data.tokenizer_name_or_path, use_fast=False)
 
-    # For wrapped batches:
-    #  [BOS] sent1 [EOS] sent2-fragment [EOS]
-    #  [BOS] sent2-fragment [EOS] sent3 [EOS]
-    if tokenizer.bos_token is None:
-        if tokenizer.cls_token is None:
-            raise AttributeError(
-                'Tokenizer must have a bos_token or '
-                f'cls_token: {tokenizer}')
-        tokenizer.bos_token = tokenizer.cls_token
-    if tokenizer.eos_token is None:
-        if tokenizer.sep_token is None:
-            raise AttributeError(
-                'Tokenizer must have a eos_token '
-                f'or sep_token: {tokenizer}')
-        tokenizer.eos_token = tokenizer.sep_token
-    if tokenizer.pad_token is None:
-        tokenizer.add_special_tokens({'pad_token': '[PAD]'})
-    tokenizer.add_tokens([f'[MASK{i:0>6d}]' for i in range(config.mask_vocab_size)], special_tokens=True)
+    def augment_extract(image):
+        image_crop = image
+        return image_crop
 
-    tokenizer.padding_side = 'right'
-    tokenizer.truncation_side = 'right'
-    tokenizer.chat_template = 'default template'
-    print(f'{tokenizer.chat_template=}')
-    return tokenizer
+    def preprocess_and_tokenize(example):
+        
+        image_path = os.path.join(imagenet_dir, example['image_dir'])
 
+        try:
+            img = Image.open(image_path).convert("RGB")
+        except:
+            breakpoint()
+            img = Image.open(image_path).convert("RGB")
+
+        return dict(text=example['class'], image_tokens=img)
+
+    if streaming:
+        tokenized_dataset = data.map(
+            preprocess_and_tokenize,
+            batched=False,
+            num_proc = num_proc,
+            desc='Tokenizing')
+    else:
+        raise Exception
+
+    return tokenized_dataset
+
+def get_dataset_separate(
+    dataset_path, 
+    token_dir,
+    image_dir,
+    num_proc=len(os.sched_getaffinity(0)), 
+    streaming=True,
+):
+    "from tokens"
+
+    data = datasets.load_from_disk(dataset_path)
+
+
+    def preprocess(example):
+        
+        token_path = os.path.join(token_dir, example['image_tokens'])
+        image_path = os.path.join(image_dir, example['image_tokens'][:-4] + '.jpg')
+        # assume the token and image have same dir structure.
+        try:
+            tokens = np.load(token_path)
+            image = Image.open(image_path).convert("RGB")
+        except:
+            print('Error when loading datasets.')
+            pass
+
+        return dict(text = example['text'], image_tokens = tokens.astype(np.int32), images = image)
+
+    if streaming:
+        tokenized_dataset = data.map(
+            preprocess,
+            batched=False,
+            num_proc = num_proc,
+            desc='Tokenizing')
+    else:
+        raise Exception
+
+    return tokenized_dataset
 
 def get_dataloaders(
     config,  
@@ -112,28 +152,40 @@ def get_dataloaders(
     if skip_train:
         train_set = None
     else:
-        train_set = get_dataset(
-            config.data.dataset_path, 
-            image_token_dir=config.data.image_token_dir,
-            cache_dir=config.data.cache_dir,
-        )
+        if config.data.type == 'token':
+            train_set = get_dataset_from_token(
+                config.data.dataset_path, 
+                image_token_dir=config.data.image_token_dir
+            )
+        elif config.data.type == 'image':
+            train_set = get_dataset_from_image(
+                config.data.dataset_path, 
+                image_token_dir=config.data.image_token_dir
+            )
+        elif config.data.type == 'both':
+            train_set = get_dataset_separate(
+                config.data.dataset_path, 
+                token_dir=config.data.image_token_dir,
+                image_dir=config.data.image_dir
+            )
+        else:
+            raise ValueError
     
     if skip_valid:
         valid_set = None
     else:
-        valid_set = get_dataset(
-            config.data.val_dataset_path, 
-            image_token_dir=config.data.image_token_dir, 
-            cache_dir=config.data.cache_dir,
-        )
+        raise ValueError
 
     def collate_fn(batch):
 
         text = [x['text'] for x in batch] 
         image_tokens = [torch.tensor(x['image_tokens'][0]) for x in batch]
+        images = [x['images'] for x in batch]
+
         tokens = {
         'text': text, # [1, L, 2048]
-        'image_tokens': image_tokens # [256]
+        'image_tokens': image_tokens, # [256],
+        'images': images
         }
         return tokens
 

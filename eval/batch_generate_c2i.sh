@@ -2,9 +2,9 @@
 set -x
 
 export WANDB_DISABLED=true
-export PYTHONPATH=$PYTHONPATH:/home/node237/Code/ddit-c2i
+export PYTHONPATH=$PYTHONPATH:/nfs/mtr/code/ddit-c2i
 
-MODEL_PATH=/home/node237/Code/ddit-c2i/outputs/c2i-ddit-L-m1-d3pm/2025.01.17/215210/checkpoints/39-100000.ckpt
+MODEL_PATH=/nfs/mtr/code/ddit-c2i/outputs/mask-ddit-L-norepa/01-20-173315/checkpoints/39-100000.ckpt
 
 CFG_SCALE=2
 SAMPLE_STEP=50
@@ -22,10 +22,11 @@ for GPU_ID in {0..7}; do
     model=L-model \
     model.length=256 \
     backbone=dit \
-    data=llamaGen \
+    data=llamaGen-token \
     mask_vocab_size=1 \
     generation_cfg=$CFG_SCALE \
     ar_cfg=False \
+    mode=eval \
     seed=$GPU_ID \
     noise=loglinear \
     time_conditioning=True \

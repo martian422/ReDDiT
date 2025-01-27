@@ -48,13 +48,13 @@ def generate_samples(config, logger):
     seed = 100 + config.seed
     torch.manual_seed(seed)
 
-    target_path = '/home/node237/Code/ddit-c2i/outputs/to_evaluate'
+    target_path = '/nfs/mtr/code/ddit-c2i/outputs/eval'
     save_path_images = os.path.join(target_path, config.eval.mark, 'images')
-    save_path_codes = os.path.join(target_path, config.eval.mark, 'codes')
+    # save_path_codes = os.path.join(target_path, config.eval.mark, 'codes')
 
     if local_rank == 0:
         os.makedirs(save_path_images, exist_ok=True)
-        os.makedirs(save_path_codes, exist_ok=True)
+        # os.makedirs(save_path_codes, exist_ok=True)
    
     vq_model = VQ_models["VQ-16"](
         codebook_size=16384,
@@ -70,7 +70,6 @@ def generate_samples(config, logger):
         p.requires_grad = False
 
     print(f"image tokenizer is loaded")
-
 
     model = _load_from_checkpoint(config=config)
     model = model.to(device)

@@ -20,7 +20,7 @@ from scipy import linalg
 from tqdm.auto import tqdm
 
 INCEPTION_V3_URL = "https://openaipublic.blob.core.windows.net/diffusion/jul-2021/ref_batches/classify_image_graph_def.pb"
-INCEPTION_V3_PATH = "classify_image_graph_def.pb"
+INCEPTION_V3_PATH = "/nfs/mtr/classify_image_graph_def.pb"
 
 FID_POOL_NAME = "pool_3:0"
 FID_SPATIAL_NAME = "mixed_6/conv:0"
@@ -685,9 +685,10 @@ def create_npz_from_sample_folder(sample_dir_o, num=48000):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("-r", "--ref_batch", help="path to reference batch npz file", default='/home/node237/VIRTUAL_imagenet256_labeled.npz')
+    parser.add_argument("-r", "--ref_batch", help="path to reference batch npz file", default='/nfs/mtr/n237/VIRTUAL_imagenet256_labeled.npz')
     parser.add_argument("-s", "--sample_folder", help="path to sample folder that contains images folder", default=None)
     args = parser.parse_args()
     target_npz_file = create_npz_from_sample_folder(args.sample_folder)
+    # target_npz_file = 'your npz file path' # in case of custom npz package.
 
     main(ref_batch = args.ref_batch, sample_batch = target_npz_file)

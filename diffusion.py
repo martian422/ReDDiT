@@ -13,11 +13,13 @@ import torchmetrics
 import transformers
 from torch import Tensor
 
-import dataloader_t2i as dataloader
+from torchvision import transforms
+
+import dataloader_c2i as dataloader
 import models
 import noise_schedule
 import utils
-from llamaGen.model_hf_style import LlamaGen, LlamaGen_Config
+
 from accelerate import Accelerator
 
 from timm.data import IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD
@@ -25,7 +27,7 @@ from timm.data import IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD
 import time
 from torchvision.transforms import Normalize
 
-lm_config=LlamaGen_Config()
+# lm_config=LlamaGen_Config()
 
 LOG2 = math.log(2)
 
@@ -138,7 +140,6 @@ class Diffusion(L.LightningModule):
         self.vocab_size = self.config.lm_vocab_size + self.config.mask_vocab_size
         self.mask_index_range = (self.config.lm_vocab_size, self.vocab_size)
         self.sampler = self.config.sampling.predictor
-        self.lm_name_or_path = self.config.lm_name_or_path
 
         self.antithetic_sampling = self.config.training.antithetic_sampling
         self.importance_sampling = self.config.training.importance_sampling
@@ -147,6 +148,9 @@ class Diffusion(L.LightningModule):
 
         self.dino = dino_encoder
         self.vq = vq_model
+        self.transform = transforms.Compose(
+            [transforms.ToTensor(),
+             transforms.Normalize(mean=IMAGENET_DEFAULT_MEAN, std=IMAGENET_DEFAULT_STD, inplace=True)])
 
         # self.embed_tokens = EmbeddingWithMask(
         #     self.input_embedding, self.mask_index_range).bfloat16()
@@ -298,7 +302,6 @@ class Diffusion(L.LightningModule):
         
         # 'Carry-Over Unmasking'
         if self.config.carry_over==True:
-            print('carrying over.')
             unmasked_indices = (xt < self.mask_index_range[0])
             logits[unmasked_indices] = self.neg_infinity
             logits[unmasked_indices, xt[unmasked_indices]] = 0 
@@ -319,9 +322,12 @@ class Diffusion(L.LightningModule):
 
     def _preprocess_batch(self, batch):
 
-        labels=torch.tensor([int(t[0]) for t in batch['text']]).unsqueeze(1)
-      
-        image_tokens = torch.stack(batch['image_tokens']) # list of tokens
+        image_tokens = torch.stack(batch['image_tokens']) # shape [bs, L]
+        labels = torch.tensor([int(t[0]) for t in batch['text']]).unsqueeze(1).to(image_tokens.device)
+
+        if self.config.data.type =='both':
+            images = [ self.transform(x) for x in batch['images'] ]
+            images = torch.stack(images).to(image_tokens.device)
 
         if self.config.batch_drop_out > 0:
             # for cfg perhaps.
@@ -329,7 +335,7 @@ class Diffusion(L.LightningModule):
             labels = torch.where(drop_ids[:, None], 1000, labels)
 
         # text_embeds = torch.stack([F.pad(t[:PAD_MAX,:], (0, 0, max(PAD_MAX - t.size(0),0), 0)) for t in text_embeds])
-        labels = labels.to(image_tokens.device)
+        # labels = labels.to(image_tokens.device)
         
         # attention_mask = (text_embeds[:,:,0]!=0).to(torch.int)
 
@@ -337,8 +343,11 @@ class Diffusion(L.LightningModule):
             ls = int(self.config.repa_loss.target_res / self.config.repa_loss.ds_ratio)
             with torch.no_grad():
                 with torch.amp.autocast('cuda', dtype=torch.bfloat16):
-                    raw_images = self.vq.decode_code(image_tokens,[image_tokens.shape[0],8,ls,ls]) # remember to change for other resolution.
-                    raw_images_ = Normalize(IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD)(raw_images)
+                    if self.config.data.type != 'both':
+                        raw_images = self.vq.decode_code(image_tokens,[image_tokens.shape[0],8,ls,ls]) # remember to change for other resolution.
+                        raw_images_ = Normalize(IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD)(raw_images)
+                    else:
+                        raw_images_ = images.to(torch.bfloat16)
                     raw_images_ = torch.nn.functional.interpolate(raw_images_, self.config.repa_loss.target_res, mode='bicubic')
                     zs = self.dino.forward_features(raw_images_)
                     zs = zs['x_norm_patchtokens'] # [bs, 16*16, 768]

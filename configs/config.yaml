@@ -7,7 +7,6 @@ defaults:
   - /noise: loglinear
   - /lr_scheduler: cosine_decay_warmup
 
-lm_name_or_path: /home/node237/Code/llamagen/pretrained_models_hf_c2i
 lm_vocab_size: 16384
 mask_vocab_size: 128
 ar_cfg: False
@@ -19,13 +18,13 @@ logit_temp: 1.0
 repa_loss:
   target_res: 224
   ds_ratio: 14
-  vq_ckpt: /home/node237/Code/llamagen/pretrained_vq/vq_ds16_c2i.pt
+  vq_ckpt: /nfs/mtr/pretrained/vq_ds16_c2i.pt
   use_repa: True
   projector_dim: 2048
   z_dim: 768
   dino_model: dinov2_vitb14_reg
 
-mode: train  # train / ppl_eval / sample_eval
+mode: train  # train / eval / debug
 diffusion: absorbing_state
 backbone: dit  # dit / dimamba / ar
 parameterization: subs  # subs / d3pm / sedd
@@ -45,7 +44,6 @@ loader:
   pin_memory: True
 
 sampling:
-  input_str: "A robe takes 2 bolts of blue fiber and half that much white fiber. How many bolts in total does it take?"
   predictor: ddpm_cache  # analytic, ddpm, ddpm_cache
   steps: 100
   noise_removal: True
@@ -98,9 +96,9 @@ trainer:
   limit_val_batches: 0.0     # validate on full dataset, can be used to toggle quick run
 
 wandb:
-  project: ARG-MDM
+  project: DDiT
   entity: ARG-MDM
-  notes: MDM with Autoregressive Guidance.
+  notes: Discrete Diffusion.
   group: null
   job_type: null
   name: null
@@ -111,7 +109,7 @@ wandb:
 
 hydra:
   run:
-    dir: ./outputs/${wandb.name}/${now:%Y.%m.%d}/${now:%H%M%S}
+    dir: ./outputs/${wandb.name}/${now:%m-%d-%H%M%S}
   job:
     chdir: true
 

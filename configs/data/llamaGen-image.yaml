@@ -1,5 +1,6 @@
 train: llamaGen
 valid: llamaGen
+type: image
 dataset_path: /workspace/intern/liaomingxiang/ARG-MDM/data/dataset_small
 val_dataset_path: /workspace/intern/liaomingxiang/ARG-MDM/data/dataset_small
 tokenizer_name_or_path: None
