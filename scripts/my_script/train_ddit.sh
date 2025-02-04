@@ -14,7 +14,7 @@ CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 torchrun \
     --nnodes=$WORLD_SIZE --node-rank=$RANK --nproc_per_node=8 \
     --master_port=11456 \
     main.py \
-    model=L-model \
+    model=L-dit-model \
     mode=train \
     data=llamaGen-both \
     data.dataset_path=/nfs/mtr/datasets/dataset_files/imagenet-10crop-256  \
@@ -22,8 +22,8 @@ CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 torchrun \
     data.image_token_dir=/nfs/mtr/datasets/imagenet_10crop_code \
     data.image_dir=/nfs/mtr/datasets/imagenet_10crops_x256 \
     data.cache_dir=/data/dataset_collects/cache \
-    wandb.name=mask-ddit-L-10crop \
-    lr_scheduler=cosine_decay_warmup \
+    wandb.name=mask-ddit-std-L-repa8 \
+    lr_scheduler=constant_warmup \
     noise=loglinear \
     carry_over=True \
     repa_loss.use_repa=True \

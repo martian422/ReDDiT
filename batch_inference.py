@@ -11,7 +11,6 @@ from torchvision.utils import save_image
 import numpy as np
 import torch.nn.functional as F
 
-import dataloader_t2i as dataloader
 import diffusion
 import utils
 import random

@@ -675,7 +675,17 @@ def create_npz_from_sample_folder(sample_dir_o, num=48000):
             sample_pil = Image.open(f"{sample_dir}/{file}")
             sample_np = np.asarray(sample_pil).astype(np.uint8)
             samples.append(sample_np)
-    samples = np.stack(samples)
+
+    batch_size = 2000  
+    # Adjust batch size depending on available memory, as at very rare cases it will get stuck.
+    batches = []
+    for i in range(0, len(samples), batch_size):
+        batch = np.stack(samples[i:i+batch_size])
+        batches.append(batch)
+
+    # stack all the batches together.
+    samples = np.concatenate(batches, axis=0)
+
     assert samples.shape == (num, samples.shape[1], samples.shape[2], 3)
     sample_name = sample_dir_o.split('/')[-1] + '.npz'
     npz_path = os.path.join(sample_dir_o, sample_name)
@@ -692,3 +702,6 @@ if __name__ == "__main__":
     # target_npz_file = 'your npz file path' # in case of custom npz package.
 
     main(ref_batch = args.ref_batch, sample_batch = target_npz_file)
+
+    os.remove(target_npz_file)
+    print('.npz file has been removed.')

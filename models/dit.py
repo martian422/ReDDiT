@@ -207,6 +207,7 @@ class LabelEmbedder(nn.Module):
         self.embedding_table = nn.Embedding(num_classes + 1, cond_size)
         self.num_classes = num_classes
 
+
         # TODO think of initializing with 0.02 std deviation like in original DiT paper
 
     def forward(self, labels):
@@ -392,12 +393,13 @@ class DIT(nn.Module, huggingface_hub.PyTorchModelHubMixin):
             x = self.vocab_embed(indices)  # [bs, psz**2, hidden_size]
             y = self.label_embed(labels)
             t = self.sigma_map(sigma)
-            c = t + y # removed additional silu, as we donot know what for.
+            c = F.silu(t + y)
+            # c = t + y 
             rotary_cos_sin = self.rotary_emb(x)
             N, T, D = x.shape
             for i in range(len(self.blocks)):
                 x = self.blocks[i](x, rotary_cos_sin, c, seqlens=None)
-                if i+1==len(self.blocks) and self.training and self.config.repa_loss.use_repa==True:
+                if i+1==8 and self.training and self.config.repa_loss.use_repa==True:
                     zs = [projector(x.reshape(-1, D)).reshape(N, T, -1) for projector in self.projectors]
             if self.config.repa_loss.use_repa==False or self.training==False:
                 zs = None

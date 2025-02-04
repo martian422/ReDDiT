@@ -5,7 +5,7 @@ export WANDB_DISABLED=true
 # export CUDA_LAUNCH_BLOCKING=1
 export PYTHONPATH=$PYTHONPATH:/nfs/mtr/code/ddit-c2i
 
-MODEL_PATH=/nfs/mtr/code/ddit-c2i/outputs/mask-ddit-L-norepa/01-20-173315/checkpoints/39-100000.ckpt
+MODEL_PATH=/nfs/mtr/code/ddit-c2i/outputs/mask-ddit-L-10crop/01-26-112550/checkpoints/4-110000.ckpt
 
 CFG_SCALE=2
 SAMPLE_STEP=50

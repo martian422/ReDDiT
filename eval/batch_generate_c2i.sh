@@ -4,9 +4,9 @@ set -x
 export WANDB_DISABLED=true
 export PYTHONPATH=$PYTHONPATH:/nfs/mtr/code/ddit-c2i
 
-MODEL_PATH=/nfs/mtr/code/ddit-c2i/outputs/mask-ddit-L-norepa/01-20-173315/checkpoints/39-100000.ckpt
+MODEL_PATH=/nfs/mtr/code/ddit-c2i/outputs/mask-ddit-std-L-cosine-repa8/02-03-162153/checkpoints/5-260000.ckpt
 
-CFG_SCALE=2
+CFG_SCALE=2.5
 SAMPLE_STEP=50
 EPOCH=$(echo "$MODEL_PATH" | sed -E 's#.*/([^/]+)-.*#\1#')
 
@@ -19,7 +19,7 @@ for GPU_ID in {0..7}; do
     CUDA_VISIBLE_DEVICES=$GPU_ID \
     python batch_inference.py \
     mode=sample_eval \
-    model=L-model \
+    model=L-dit-model \
     model.length=256 \
     backbone=dit \
     data=llamaGen-token \
@@ -28,7 +28,7 @@ for GPU_ID in {0..7}; do
     ar_cfg=False \
     mode=eval \
     seed=$GPU_ID \
-    noise=loglinear \
+    noise=cosine \
     time_conditioning=True \
     loader.eval_batch_size=1 \
     eval.mark=$NAME-e$EPOCH-s$SAMPLE_STEP-cfg$CFG_SCALE \

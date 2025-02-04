@@ -1,0 +1,10 @@
+name: L-dit-model
+type: ddit
+hidden_size: 1024
+cond_dim: 1024
+length: 256
+n_blocks: 24
+n_heads: 16
+scale_by_sigma: True
+dropout: 0.1
+tie_word_embeddings: False

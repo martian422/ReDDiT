@@ -1044,7 +1044,7 @@ class Diffusion(L.LightningModule):
         token_nll = batch_nll / count
 
         if self.config.repa_loss.use_repa==True:
-            loss_sum = token_nll + 0.5* proj_loss.mean()
+            loss_sum = token_nll + 0.5 * proj_loss.mean()
         else:
             loss_sum = token_nll
 
