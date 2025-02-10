@@ -14,7 +14,7 @@ CUDA_VISIBLE_DEVICES=0 torchrun \
     --nnodes=$WORLD_SIZE --node-rank=$RANK --nproc_per_node=1 \
     --master_port=11451 \
     main.py \
-    model=L-model \
+    model=B-model \
     mode=debug \
     data=llamaGen-both \
     data.dataset_path=/nfs/mtr/datasets/dataset_files/imagenet-10crop-256  \
@@ -24,6 +24,7 @@ CUDA_VISIBLE_DEVICES=0 torchrun \
     data.cache_dir=/data/dataset_collects/cache \
     lr_scheduler=cosine_decay_warmup \
     noise=loglinear \
+    rope=2d \
     carry_over=True \
     repa_loss.use_repa=True \
     optim.lr=5e-4 \

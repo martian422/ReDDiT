@@ -113,15 +113,64 @@ class Rotary(torch.nn.Module):
 
         return self.cos_cached, self.sin_cached
 
+class Rotary2D(torch.nn.Module):
+    def __init__(self, dim, base=10_000):
+        super().__init__()
+        half_dim = dim//2
+        inv_freq = 1.0 / (base ** (torch.arange(0, half_dim, 2)[: (half_dim // 2)].float() / half_dim))
+        self.register_buffer('inv_freq', inv_freq)
+        self.grid = 16
+        self.seq_len_cached = None
+        self.cos_cached = None
+        self.sin_cached = None
+
+    def forward(self, x, seq_dim=1):
+        seq_len = x.shape[seq_dim]
+        if seq_len != self.seq_len_cached:
+            self.seq_len_cached = seq_len
+            t = torch.arange(0, self.grid, device=x.device).type_as(self.inv_freq)
+            freqs = torch.einsum("i,j->ij", t, self.inv_freq.clone())
+            freqs_x = freqs[:, None, :].expand(-1, self.grid, -1)
+            freqs_y = freqs[None, :, :].expand(self.grid, -1, -1)
+            # freqs_sync = freqs_x + freqs_y
+            # emb = torch.cat((freqs_sync.flatten(0,1), freqs_sync.flatten(0,1)), dim =-1).to(x.device)
+            emb = torch.concat([freqs_x.flatten(0,1), freqs_y.flatten(0,1)], dim = -1)
+            self.cos_cached = emb.cos()[None, :, None, None, :].repeat(1, 1, 3, 1, 1)
+            self.sin_cached = emb.sin()[None, :, None, None, :].repeat(1, 1, 3, 1, 1)
+            # freqs_grid = torch.concat([
+            #     freqs[:, None, :].expand(-1, self.grid, -1),
+            #     freqs[None, :, :].expand(self.grid, -1, -1),
+            # ], dim=-1)
+            # freqs_flatten = freqs_grid.flatten(0,1)
+            # self.cos_cached = freqs_flatten.cos()[None, :, None, None, :].repeat(1, 1, 3, 1, 1)
+            # self.sin_cached = freqs_flatten.sin()[None, :, None, None, :].repeat(1, 1, 3, 1, 1)
+            # # keep identity transform for v, only rotate q and k.
+            self.cos_cached[:,:,2,:,:].fill_(1.)
+            self.sin_cached[:,:,2,:,:].fill_(0.)
+
+        return self.cos_cached, self.sin_cached
 
 def rotate_half(x):
     x1, x2 = x[..., : x.shape[-1] // 2], x[..., x.shape[-1] // 2 :]
     return torch.cat((-x2, x1), dim=-1)
 
 
-def apply_rotary_pos_emb(qkv, cos, sin):
-    cos = cos[0,:,0,0,:cos.shape[-1]//2]
+def apply_rotary_pos_emb_old(qkv, cos, sin):
+    # this function has been hanged as we are using 2D rope now.
+    cos = cos[0,:,0,0,:cos.shape[-1]//2] # in 1d, [1,256,3,1,64] -> [256,32]
     sin = sin[0,:,0,0,:sin.shape[-1]//2]
+    return flash_attn.layers.rotary.apply_rotary_emb_qkv_(qkv, cos, sin)
+
+def apply_rotary_pos_emb(qkv, cos, sin, mode):
+    if mode =='2d' :
+        cos = cos[0,:,0,0,:] # in 2d, [1,256,3,1,32] -> [256,32]
+        sin = sin[0,:,0,0,:]
+    elif mode == '1d' :
+        cos = cos[0,:,0,0,:cos.shape[-1]//2] # in 1d, [1,256,3,1,64] -> [256,32]
+        sin = sin[0,:,0,0,:sin.shape[-1]//2]
+    else:
+        raise ValueError
+    
     return flash_attn.layers.rotary.apply_rotary_emb_qkv_(qkv, cos, sin)
 
 
@@ -221,7 +270,7 @@ class LabelEmbedder(nn.Module):
 
 
 class DDiTBlock(nn.Module):
-    def __init__(self, dim, n_heads, cond_dim, mlp_ratio=4, dropout=0.1):
+    def __init__(self, dim, n_heads, cond_dim, mlp_ratio=4, dropout=0.1, position_enc='1d'):
         super().__init__()
         self.n_heads = n_heads
 
@@ -229,6 +278,7 @@ class DDiTBlock(nn.Module):
         self.attn_qkv = nn.Linear(dim, 3 * dim, bias=False)
         self.attn_out = nn.Linear(dim, dim, bias=False)
         self.dropout1 = nn.Dropout(dropout)
+        self.position_enc = position_enc
 
         self.norm2 = LayerNorm(dim)
         self.mlp = nn.Sequential(
@@ -271,7 +321,7 @@ class DDiTBlock(nn.Module):
         with torch.amp.autocast('cuda', enabled=False):
             cos, sin = rotary_cos_sin
             qkv = apply_rotary_pos_emb(
-                qkv, cos.to(qkv.dtype), sin.to(qkv.dtype))
+                qkv, cos.to(qkv.dtype), sin.to(qkv.dtype), mode=self.position_enc)
         qkv = rearrange(qkv, 'b s ... -> (b s) ...')
         if seqlens is None:
             cu_seqlens = torch.arange(
@@ -355,7 +405,10 @@ class DIT(nn.Module, huggingface_hub.PyTorchModelHubMixin):
         #     1024, config.model.hidden_size, bias=False) # 1024->1280
         self.label_embed = LabelEmbedder(1000, config.model.cond_dim)
         self.sigma_map = TimestepEmbedder(config.model.cond_dim)
-        self.rotary_emb = Rotary(config.model.hidden_size // config.model.n_heads)
+        if self.config.rope=='2d':
+            self.rotary_emb = Rotary2D(config.model.hidden_size // config.model.n_heads)
+        else:
+            self.rotary_emb = Rotary(config.model.hidden_size // config.model.n_heads)
 
         blocks = []
         for _ in range(config.model.n_blocks):
@@ -363,7 +416,8 @@ class DIT(nn.Module, huggingface_hub.PyTorchModelHubMixin):
                 config.model.hidden_size,
                 config.model.n_heads,
                 config.model.cond_dim,
-                dropout=config.model.dropout))
+                dropout=config.model.dropout,
+                position_enc=self.config.rope))
         self.blocks = nn.ModuleList(blocks)
 
         
@@ -395,7 +449,7 @@ class DIT(nn.Module, huggingface_hub.PyTorchModelHubMixin):
             t = self.sigma_map(sigma)
             c = F.silu(t + y)
             # c = t + y 
-            rotary_cos_sin = self.rotary_emb(x)
+            rotary_cos_sin = self.rotary_emb(x) # tuple of 2*[1,256,3,1,64]
             N, T, D = x.shape
             for i in range(len(self.blocks)):
                 x = self.blocks[i](x, rotary_cos_sin, c, seqlens=None)

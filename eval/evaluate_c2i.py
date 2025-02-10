@@ -670,16 +670,18 @@ def create_npz_from_sample_folder(sample_dir_o, num=48000):
     """
     sample_dir = os.path.join(sample_dir_o, 'images')
     samples = []
+    print('Loading samples.')
     for file in tqdm(os.listdir(sample_dir)):
         if file.endswith(('.png')) :
             sample_pil = Image.open(f"{sample_dir}/{file}")
             sample_np = np.asarray(sample_pil).astype(np.uint8)
             samples.append(sample_np)
 
-    batch_size = 2000  
+    batch_size = 1000
     # Adjust batch size depending on available memory, as at very rare cases it will get stuck.
     batches = []
-    for i in range(0, len(samples), batch_size):
+    print('Concating samples.')
+    for i in tqdm(range(0, len(samples), batch_size)):
         batch = np.stack(samples[i:i+batch_size])
         batches.append(batch)
 
@@ -689,6 +691,7 @@ def create_npz_from_sample_folder(sample_dir_o, num=48000):
     assert samples.shape == (num, samples.shape[1], samples.shape[2], 3)
     sample_name = sample_dir_o.split('/')[-1] + '.npz'
     npz_path = os.path.join(sample_dir_o, sample_name)
+    print('Saving ref batches.')
     np.savez(npz_path, arr_0=samples)
     print(f"Saved .npz file to {npz_path} [shape={samples.shape}].")
     return npz_path
@@ -699,7 +702,7 @@ if __name__ == "__main__":
     parser.add_argument("-s", "--sample_folder", help="path to sample folder that contains images folder", default=None)
     args = parser.parse_args()
     target_npz_file = create_npz_from_sample_folder(args.sample_folder)
-    # target_npz_file = 'your npz file path' # in case of custom npz package.
+    # target_npz_file = '/nfs/mtr/code/ddit-c2i/outputs/eval/2d-repa8-e11-s50-cfg2.5/2d-repa8-e11-s50-cfg2.5.npz' # in case of custom npz package.
 
     main(ref_batch = args.ref_batch, sample_batch = target_npz_file)
 

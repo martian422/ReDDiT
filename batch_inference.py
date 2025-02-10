@@ -17,6 +17,8 @@ import random
 
 from llamaGen.vq_model import VQ_models
 
+from llamaGen.maskgit import PretrainedTokenizer
+
 omegaconf.OmegaConf.register_new_resolver(
     'cwd', os.getcwd)
 omegaconf.OmegaConf.register_new_resolver(
@@ -54,21 +56,33 @@ def generate_samples(config, logger):
     if local_rank == 0:
         os.makedirs(save_path_images, exist_ok=True)
         # os.makedirs(save_path_codes, exist_ok=True)
-   
-    vq_model = VQ_models["VQ-16"](
-        codebook_size=16384,
-        codebook_embed_dim=8)
-    vq_model.to(device)
-    vq_model.eval()
-    checkpoint = torch.load(config.repa_loss.vq_ckpt, map_location="cpu")
-    vq_model.load_state_dict(checkpoint["model"])
+    if config.vq == 'llamagen':
 
-    del checkpoint
+        vq_model = VQ_models["VQ-16"](
+            codebook_size=16384,
+            codebook_embed_dim=8)
+        vq_model.to(device)
+        vq_model.eval()
+        checkpoint = torch.load(config.repa_loss.vq_ckpt, map_location="cpu")
+        vq_model.load_state_dict(checkpoint["model"])
 
-    for p in vq_model.parameters():
-        p.requires_grad = False
+        del checkpoint
 
-    print(f"image tokenizer is loaded")
+        for p in vq_model.parameters():
+            p.requires_grad = False
+
+        print(f"llamaGen tokenizer is loaded")
+
+    elif config.vq == 'maskgit':
+        vq_model = PretrainedTokenizer("/nfs/mtr/pretrained/maskgit-vqgan-imagenet-f16-256.bin")
+    
+        vq_model.eval()
+        vq_model.requires_grad_(False)
+        vq_model.to(device)
+        print(f"MaskGIT tokenizer is loaded")
+
+    else:
+        raise ValueError
 
     model = _load_from_checkpoint(config=config)
     model = model.to(device)
@@ -129,8 +143,14 @@ def generate_samples(config, logger):
             if x.max()>16383:
                 x[x>16383] = 16383
                 print(f'{class_num} has mistakes, corrected. Pay attention to this.')
-            
-            x_decode = vq_model.decode_code(x,[x.shape[0],8,16,16])
+            if config.vq == 'llamagen':
+                x_decode = vq_model.decode_code(x,[x.shape[0],8,16,16]) # [bs, 3, H, W]
+            elif config.vq == 'maskgit':
+                x_decode = vq_model.decode_tokens(x)
+                breakpoint()
+                x_decode = torch.clamp(x_decode, 0.0, 1.0) # FIXME: whether to reserve this or directly normalize into (-1,1)?
+            else:
+                raise ValueError
             # x_decode = F.interpolate(x_decode, size=(256, 256), mode='bicubic')
             for k in range(bs):
                 # if you want to save the code.

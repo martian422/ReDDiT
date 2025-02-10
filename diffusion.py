@@ -53,9 +53,7 @@ def rand_and_exp(logits):
     return logits
 
 def _sample_categorical(categorical_probs):
-    # A simple sample function based on probability distribution.
-    # suppose categorical_probs = torch.tensor([[[0.1, 0.2, 0.7],[0.3, 0.3, 0.4]],[[0.2, 0.5, 0.3],[0.6, 0.2, 0.2]]])
-    # then return is tensor([[2, 2],[1, 0]])
+    # A simple sample function based on probability distribution
     *sample_shape, C = categorical_probs.shape
     return torch.multinomial(categorical_probs.reshape(-1, C), num_samples=1).reshape(*sample_shape)
 
@@ -682,6 +680,7 @@ class Diffusion(L.LightningModule):
         # if a certain position of xt is mask, then _x may have mask.
         # if a certain position of xt is not mask, then _x is not mask.
         _x = _sample_categorical(q_xs)
+        # _x = q_xs.argmax(-1)
 
         # pre_mask = ~ (xt < self.mask_index_range[0])
         # mask_conf = p_x0_

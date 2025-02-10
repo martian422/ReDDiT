@@ -136,7 +136,7 @@ def _train(config, logger):
             p.requires_grad = False
         dino_encoder.eval()
 
-        if config.data.type != 'llamaGen-both':
+        if config.data.type != 'both':
 
             vq_model = VQ_models["VQ-16"](
                 codebook_size=16384,
