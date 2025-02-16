@@ -5,7 +5,7 @@ export WANDB_DISABLED=true
 # export CUDA_LAUNCH_BLOCKING=1
 export PYTHONPATH=$PYTHONPATH:/nfs/mtr/code/ddit-c2i
 
-MODEL_PATH=/nfs/mtr/code/ddit-c2i/outputs/mask-ddit-L-10crop/01-26-112550/checkpoints/4-110000.ckpt
+MODEL_PATH=/nfs/mtr/code/ddit-c2i/outputs/maskgit-ddit-stable-cosine/02-15-135921/checkpoints/3-100000.ckpt
 
 CFG_SCALE=2
 SAMPLE_STEP=50
@@ -19,13 +19,15 @@ echo "current sampling step: $SAMPLE_STEP, with cfg = $CFG_SCALE at epoch $EPOCH
 CUDA_VISIBLE_DEVICES=0 \
     python batch_inference.py \
     mode=eval \
-    model=L-model \
+    vq=maskgit \
+    model=maskgit \
     model.length=256 \
+    lm_vocab_size=1024 \
     backbone=dit \
-    data=llamaGen-image \
+    data=llamaGen-both \
     mask_vocab_size=1 \
     generation_cfg=$CFG_SCALE \
-    rope=1d \
+    rope=2d \
     seed=1 \
     noise=loglinear \
     time_conditioning=True \

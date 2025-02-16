@@ -4,7 +4,7 @@ set -x
 export WANDB_DISABLED=true
 export PYTHONPATH=$PYTHONPATH:/nfs/mtr/code/ddit-c2i
 
-MODEL_PATH=/nfs/mtr/code/ddit-c2i/outputs/mask-multi-head-2dp-repa8/02-08-114115/checkpoints/3-100000.ckpt
+MODEL_PATH=/nfs/mtr/code/ddit-c2i/outputs/maskgit-ddit-stable-cosine/02-15-135921/checkpoints/3-100000.ckpt
 
 CFG_SCALE=2.0
 SAMPLE_STEP=50
@@ -18,22 +18,24 @@ echo "current sampling step: $SAMPLE_STEP, with cfg = $CFG_SCALE at epoch $EPOCH
 for GPU_ID in {0..7}; do
     CUDA_VISIBLE_DEVICES=$GPU_ID \
     python batch_inference.py \
-    mode=sample_eval \
-    model=L-multi-head \
+    mode=eval \
+    vq=maskgit \
+    model=maskgit \
     model.length=256 \
     backbone=dit \
+    lm_vocab_size=1024 \
     data=llamaGen-token \
     mask_vocab_size=1 \
     generation_cfg=$CFG_SCALE \
     ar_cfg=False \
-    mode=eval \
     rope=2d \
     seed=$GPU_ID \
-    noise=loglinear \
+    noise=cosine \
     time_conditioning=True \
     loader.eval_batch_size=1 \
     eval.mark=$NAME-e$EPOCH-s$SAMPLE_STEP-cfg$CFG_SCALE \
     eval.mode=all \
+    eval.timeline=linear \
     eval.checkpoint_path=$MODEL_PATH \
     eval.compute_generative_perplexity=False \
     eval.disable_ema=True \

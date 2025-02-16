@@ -14,7 +14,7 @@ generation_cfg: 7.5
 batch_drop_out: 0.1
 carry_over: True
 logit_temp: 1.0
-rope: 1d
+rope: 2d
 vq: llamagen
 
 repa_loss:
@@ -68,6 +68,7 @@ training:
 eval:
   mark: None
   mode: sample
+  timeline: linear
   checkpoint_path: ''  # Used to evaluate a checkpoint after training.
   disable_ema: False
   compute_generative_perplexity: False

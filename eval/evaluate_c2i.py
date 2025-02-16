@@ -701,8 +701,8 @@ if __name__ == "__main__":
     parser.add_argument("-r", "--ref_batch", help="path to reference batch npz file", default='/nfs/mtr/n237/VIRTUAL_imagenet256_labeled.npz')
     parser.add_argument("-s", "--sample_folder", help="path to sample folder that contains images folder", default=None)
     args = parser.parse_args()
-    target_npz_file = create_npz_from_sample_folder(args.sample_folder)
-    # target_npz_file = '/nfs/mtr/code/ddit-c2i/outputs/eval/2d-repa8-e11-s50-cfg2.5/2d-repa8-e11-s50-cfg2.5.npz' # in case of custom npz package.
+    # target_npz_file = create_npz_from_sample_folder(args.sample_folder)
+    target_npz_file = '/nfs/mtr/code/ddit-c2i/outputs/eval/2d-repa-fakecosine-e15-s20-cfg2.25/2d-repa-fakecosine-e15-s20-cfg2.25.npz' # in case of custom npz package.
 
     main(ref_batch = args.ref_batch, sample_batch = target_npz_file)
 
