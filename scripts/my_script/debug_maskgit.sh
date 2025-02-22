@@ -17,6 +17,7 @@ CUDA_VISIBLE_DEVICES=0 torchrun \
     model=B-model \
     mode=debug \
     lm_vocab_size=1024 \
+    random_noise=True \
     data=llamaGen-both \
     data.dataset_path=/nfs/mtr/datasets/dataset_files/imagenet-10crop-256-maskgit  \
     data.val_dataset_path=/nfs/mtr/datasets/dataset_files/imagenet-10crop-256-maskgit  \

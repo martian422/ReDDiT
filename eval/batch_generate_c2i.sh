@@ -4,10 +4,10 @@ set -x
 export WANDB_DISABLED=true
 export PYTHONPATH=$PYTHONPATH:/nfs/mtr/code/ddit-c2i
 
-MODEL_PATH=/nfs/mtr/code/ddit-c2i/outputs/maskgit-ddit-stable-cosine/02-15-135921/checkpoints/3-100000.ckpt
+MODEL_PATH=/nfs/mtr/code/ddit-c2i/outputs/maskgit-ddit-realcosine/02-18-093800/checkpoints/8-220000.ckpt
 
-CFG_SCALE=2.0
-SAMPLE_STEP=50
+CFG_SCALE=2.25
+SAMPLE_STEP=10
 EPOCH=$(echo "$MODEL_PATH" | sed -E 's#.*/([^/]+)-.*#\1#')
 
 NAME=${1:-"NOBODY"}
@@ -41,7 +41,7 @@ for GPU_ID in {0..7}; do
     eval.disable_ema=True \
     sampling.cfg_schedule=const \
     sampling.cfg_offset=2.0 \
-    sampling.predictor=ddpm_cache \
+    sampling.predictor=ddpm \
     sampling.steps=$SAMPLE_STEP \
     sampling.return_intermediate=0 \
     sampling.num_sample_batches=1 &

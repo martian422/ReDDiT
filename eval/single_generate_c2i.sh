@@ -5,10 +5,10 @@ export WANDB_DISABLED=true
 # export CUDA_LAUNCH_BLOCKING=1
 export PYTHONPATH=$PYTHONPATH:/nfs/mtr/code/ddit-c2i
 
-MODEL_PATH=/nfs/mtr/code/ddit-c2i/outputs/maskgit-ddit-stable-cosine/02-15-135921/checkpoints/3-100000.ckpt
+MODEL_PATH=/nfs/mtr/code/ddit-c2i/outputs/maskgit-ddit-linearnoise/02-20-172638/checkpoints/3-100000.ckpt
 
-CFG_SCALE=2
-SAMPLE_STEP=50
+CFG_SCALE=2.25
+SAMPLE_STEP=10
 EPOCH=$(echo "$MODEL_PATH" | sed -E 's#.*/([^/]+)-.*#\1#')
 
 NAME=${1:-"NOBODY"}
@@ -34,12 +34,12 @@ CUDA_VISIBLE_DEVICES=0 \
     loader.eval_batch_size=1 \
     eval.mark=$NAME-e$EPOCH-s$SAMPLE_STEP-cfg$CFG_SCALE \
     eval.mode=sample \
+    eval.timeline=linear \
     eval.checkpoint_path=$MODEL_PATH \
-    eval.compute_generative_perplexity=False \
     eval.disable_ema=True \
     sampling.cfg_schedule=const \
     sampling.cfg_offset=2.0 \
-    sampling.predictor=ddpm_cache \
+    sampling.predictor=flow_matching \
     sampling.steps=$SAMPLE_STEP \
     sampling.return_intermediate=0 \
     sampling.num_sample_batches=1 \

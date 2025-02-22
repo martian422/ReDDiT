@@ -105,7 +105,8 @@ def generate_samples(config, logger):
     if config.eval.mode=="all":
         class_nums=np.arange(1000)
     elif config.eval.mode=="sample":
-        class_nums = [207, 360, 387, 974, 88, 979, 417, 279]
+        # class_nums = [0,1, 207, 360, 387, 974, 88, 979, 417, 279]
+        class_nums = [88]
     else:
         print('Not specified, have a look at our fish!')
         class_nums=[0,1]
@@ -125,18 +126,28 @@ def generate_samples(config, logger):
                 timesteps = (math.pi/2 * timesteps).sin()
             elif config.eval.timeline=='fast-slow':
                 timesteps = timesteps ** 1.25
-            # breakpoint()
+
             x = model._sample_prior_XX(bs_all, model.config.model.length).to(model.device)
             # x.shape= bs 256
-            dt = (1 - eps) / num_steps
-            p_x0_cache = None
+            # dt = (1 - eps) / num_steps
+            # p_x0_cache = None
             t_t = torch.ones(x.shape[0], 1, device=model.device)
 
             for i in range(num_steps):
                 t_s = timesteps[i+1] * torch.ones(
                     x.shape[0], 1, device=model.device)
-                if model.sampler == 'ddpm_cache':
+                if model.sampler == 'ddpm':
                     _, x_next = model._ddpm_update_v1(
+                        x, labels, t_t, t_t - t_s, p_x0=None)
+                    x = x_next
+                    t_t = t_s
+                elif model.sampler == 'maskgit':
+                    _, x_next = model._maskgit_update(
+                        x, labels, t_t, t_t - t_s, p_x0=None)
+                    x = x_next
+                    t_t = t_s
+                elif model.sampler == 'flow_matching':
+                    _, x_next = model._flow_matching_update(
                         x, labels, t_t, t_t - t_s, p_x0=None)
                     x = x_next
                     t_t = t_s
@@ -154,6 +165,7 @@ def generate_samples(config, logger):
                 raise ValueError
             try:
                 # in some cases, very rare tokens are still masked, so enforce the unmask schedule.
+                # _, final_x = model._ddpm_update_final(x, labels, t_t, final_dt, p_x0=None)
                 _, final_x = model._ddpm_update_final(x, labels, t_t, final_dt, p_x0=None)
                 x = final_x
             except:
@@ -161,6 +173,7 @@ def generate_samples(config, logger):
                 pass
             
             if x.max()>vocab:
+                breakpoint()
                 x[x>vocab] = vocab
                 print(f'{class_num} has mistakes, corrected. Pay attention to this.')
             if config.vq == 'llamagen':

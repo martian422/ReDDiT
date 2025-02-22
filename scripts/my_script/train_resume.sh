@@ -16,10 +16,11 @@ CUDA_VISIBLE_DEVICES=1,5,6,7 torchrun \
     --nnodes=$WORLD_SIZE --node-rank=$RANK --nproc_per_node=4 \
     --master_port=11451 \
     main.py \
-    model=1B \
+    model=maskgit \
     data=llamaGen \
     data.cache_dir=/home/MaTianren/Workspace/llamaGen/dataset_files/dataset_v1 \
     parameterization=subs \
+    random_noise=True \
     model.length=256 \
     eval.compute_generative_perplexity=False \
     sampling.steps=1000 \

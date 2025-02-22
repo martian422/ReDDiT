@@ -57,7 +57,8 @@ class Noise(abc.ABC, nn.Module):
     pass
 
 
-class CosineNoise(Noise):
+class BadCosineNoise(Noise):
+  # this actually models the slow-fast masking, which makes the unmask process fast-slow.
   def __init__(self, eps=1e-3):
     super().__init__()
     self.eps = eps
@@ -70,6 +71,23 @@ class CosineNoise(Noise):
 
   def total_noise(self, t):
     cos = torch.cos(t * torch.pi / 2)
+    return - torch.log(self.eps + (1 - self.eps) * cos)
+  
+
+class CosineNoise(Noise):
+  # this is the real cosine function that simulates the fast-slow masking, ensures the slow-to-fast unmasking.
+  def __init__(self, eps=1e-5):
+    super().__init__()
+    self.eps = eps
+
+  def rate_noise(self, t):
+    cos = (1 - self.eps) * torch.cos((t + 1) * torch.pi / 2) + 1
+    sin = (1 - self.eps) * torch.sin((t + 1 - 2e-2) * torch.pi / 2)
+    scale = torch.pi / 2
+    return scale * sin / (cos + self.eps)
+
+  def total_noise(self, t):
+    cos = torch.cos((t + 1) * torch.pi / 2) + 1
     return - torch.log(self.eps + (1 - self.eps) * cos)
 
 

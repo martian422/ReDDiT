@@ -7,6 +7,8 @@ defaults:
   - /noise: loglinear
   - /lr_scheduler: cosine_decay_warmup
 
+seed: 1
+
 lm_vocab_size: 16384
 mask_vocab_size: 1
 ar_cfg: False
@@ -17,6 +19,14 @@ logit_temp: 1.0
 rope: 2d
 vq: llamagen
 
+mode: train  # train / eval / debug
+diffusion: absorbing_state
+backbone: dit  # dit 
+parameterization: subs  # subs / d3pm / sedd
+time_conditioning: True
+T: 0  # 0 (continuous time) / 1000 
+random_noise: False
+
 repa_loss:
   target_res: 224
   ds_ratio: 14
@@ -25,16 +35,6 @@ repa_loss:
   projector_dim: 2048
   z_dim: 768
   dino_model: dinov2_vitb14_reg
-
-mode: train  # train / eval / debug
-diffusion: absorbing_state
-backbone: dit  # dit / dimamba / ar
-parameterization: subs  # subs / d3pm / sedd
-time_conditioning: False
-T: 0  # 0 (continuous time) / 1000 
-subs_masking: False
-
-seed: 1
 
 loader:
   global_batch_size: 512
@@ -46,7 +46,7 @@ loader:
   pin_memory: True
 
 sampling:
-  predictor: ddpm_cache  # analytic, ddpm, ddpm_cache
+  predictor: ddpm  # ddpm, maskgit, flow_matching
   steps: 100
   noise_removal: True
   return_intermediate: 0
@@ -92,7 +92,7 @@ trainer:
   gradient_clip_val: 1.0
   precision: 'bf16'
   num_sanity_val_steps: 2
-  max_steps: 60_000_0
+  max_steps: 80_000_0
   log_every_n_steps: 10
   reload_dataloaders_every_n_epochs: 1
   limit_train_batches: 1.0   # train on full dataset, can be used to toggle quick run
