@@ -4,13 +4,13 @@ set -x
 export WANDB_DISABLED=true
 export PYTHONPATH=$PYTHONPATH:/nfs/mtr/code/ddit-c2i
 
-MODEL_PATH=/nfs/mtr/code/ddit-c2i/outputs/maskgit-ddit-realcosine/02-18-093800/checkpoints/8-220000.ckpt
+MODEL_PATH=/nfs/mtr/code/ddit-c2i/outputs/maskgit-ddit-cosine-norepa-1d/02-23-163448/checkpoints/13-340000.ckpt
 
 CFG_SCALE=2.25
-SAMPLE_STEP=10
+SAMPLE_STEP=15
 EPOCH=$(echo "$MODEL_PATH" | sed -E 's#.*/([^/]+)-.*#\1#')
 
-NAME=${1:-"NOBODY"}
+NAME=${1:-"eval"}
 
 echo "evaluating model nickname: $NAME"
 echo "current sampling step: $SAMPLE_STEP, with cfg = $CFG_SCALE at epoch $EPOCH."
@@ -28,7 +28,7 @@ for GPU_ID in {0..7}; do
     mask_vocab_size=1 \
     generation_cfg=$CFG_SCALE \
     ar_cfg=False \
-    rope=2d \
+    rope=1d \
     seed=$GPU_ID \
     noise=cosine \
     time_conditioning=True \

@@ -48,8 +48,9 @@ def generate_samples(config, logger):
     # print(seed)
     seed = 100 + config.seed
     torch.manual_seed(seed)
+    sampler = config.sampling.predictor
 
-    target_path = '/nfs/mtr/code/ddit-c2i/outputs/eval'
+    target_path = f'/nfs/mtr/code/ddit-c2i/outputs/eval-{sampler}'
     save_path_images = os.path.join(target_path, config.eval.mark, 'images')
     # save_path_codes = os.path.join(target_path, config.eval.mark, 'codes')
 
@@ -101,13 +102,15 @@ def generate_samples(config, logger):
     eps=1e-5
     model.backbone.eval()
     model.noise.eval()
-    bs = 6
+    bs = 1
     if config.eval.mode=="all":
         class_nums=np.arange(1000)
     elif config.eval.mode=="sample":
-        # class_nums = [0,1, 207, 360, 387, 974, 88, 979, 417, 279]
-        class_nums = [88]
+        bs = 3
+        class_nums = [1, 207, 360, 387, 88, 417, 279]
+        # class_nums = [88]
     else:
+        bs=1
         print('Not specified, have a look at our fish!')
         class_nums=[0,1]
 
@@ -143,11 +146,11 @@ def generate_samples(config, logger):
                     t_t = t_s
                 elif model.sampler == 'maskgit':
                     _, x_next = model._maskgit_update(
-                        x, labels, t_t, t_t - t_s, p_x0=None)
+                        x, labels, t_t, t_t - t_s, logits_x0=None)
                     x = x_next
                     t_t = t_s
                 elif model.sampler == 'flow_matching':
-                    _, x_next = model._flow_matching_update(
+                    _, x_next = model._flow_matching_update_new(
                         x, labels, t_t, t_t - t_s, p_x0=None)
                     x = x_next
                     t_t = t_s
@@ -173,7 +176,6 @@ def generate_samples(config, logger):
                 pass
             
             if x.max()>vocab:
-                breakpoint()
                 x[x>vocab] = vocab
                 print(f'{class_num} has mistakes, corrected. Pay attention to this.')
             if config.vq == 'llamagen':

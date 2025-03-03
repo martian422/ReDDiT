@@ -4,4 +4,4 @@ t_initial: 199000
 warmup_prefix: True
 warmup_lr_init: 1e-6
 warmup_t: 1000
-lr_min: 1e-4
+lr_min: 2e-4

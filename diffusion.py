@@ -57,6 +57,17 @@ def _sample_categorical(categorical_probs):
     *sample_shape, C = categorical_probs.shape
     return torch.multinomial(categorical_probs.reshape(-1, C), num_samples=1).reshape(*sample_shape)
 
+def add_gumbel_noise(logits, temperature):
+    '''
+    The Gumbel max is a method for sampling categorical distributions.
+    According to arXiv:2409.02908, for MDM, low-precision Gumbel Max improves perplexity score but reduces generation quality.
+    Thus, we use float64.
+    '''
+    logits = logits.to(torch.float64)
+    noise = torch.rand_like(logits, dtype=torch.float64)
+    gumbel_noise = (- torch.log(noise)) ** temperature
+    return logits.exp() / gumbel_noise
+
 ### introducing REPA
 
 def build_mlp(hidden_size, projector_dim, z_dim):
@@ -367,36 +378,49 @@ class Diffusion(L.LightningModule):
         return self._subs_parameterization_with_repa(logits=logits, xt=xt, zs_tilde = zs_tilde)
     
     def sample_forward(self, xt, labels, sigma, temp = 1.0):
-        """dit sample, skipping zero-mask now."""
+        """ddit sample, skipping zero-mask, keep carry-out, donot log."""
 
         sigma = self._process_sigma(sigma)
          # equals to [bs] of zero if time_conditioning is false.
         labels = labels.squeeze(1)
         logits, zs = self.backbone(labels, xt, sigma) # y x t
-        
-        # logits[:, :, self.mask_index_range[0]:] += self.neg_infinity
+
         logits = logits / temp
+        
+        logits[:, :, self.mask_index_range[0]:] += self.neg_infinity
 
-        logits = logits - torch.logsumexp(logits, dim=-1, keepdim=True)
-
-        # skip the zero-masking, reserve the carry-over masking?
         unmasked_indices = (xt < self.mask_index_range[0])
         logits[unmasked_indices] = self.neg_infinity
-        logits[unmasked_indices, xt[unmasked_indices]] = 0 
+        logits[unmasked_indices, xt[unmasked_indices]] -= self.neg_infinity
+
+        # logits = logits - torch.logsumexp(logits, dim=-1, keepdim=True)        
 
         return logits, zs
     
     def sample_forward_raw(self, xt, labels, sigma, temp = 1.0):
-        """dit sample, skip both zero-mask and carry-out."""
+        """ddit sample, skip both zero-mask and carry-out, do not log"""
 
         sigma = self._process_sigma(sigma)
          # equals to [bs] of zero if time_conditioning is false.
         labels = labels.squeeze(1)
         logits, zs_tilde = self.backbone(labels, xt, sigma) # y x t
+        logits[:, :, self.mask_index_range[0]:] += self.neg_infinity
         logits = logits / temp
         
-        logits[:, :, self.mask_index_range[0]:] += self.neg_infinity
+        # logits = logits - torch.logsumexp(logits, dim=-1, keepdim=True)
 
+        return logits, zs_tilde
+    
+    def sample_forward_log(self, xt, labels, sigma, temp = 1.0):
+        """ddit sample, skip both zero-mask and carry-out, return log"""
+
+        sigma = self._process_sigma(sigma)
+         # equals to [bs] of zero if time_conditioning is false.
+        labels = labels.squeeze(1)
+        logits, zs_tilde = self.backbone(labels, xt, sigma) # y x t
+        logits[:, :, self.mask_index_range[0]:] += self.neg_infinity
+        logits = logits / temp
+        
         logits = logits - torch.logsumexp(logits, dim=-1, keepdim=True)
 
         return logits, zs_tilde
@@ -655,7 +679,7 @@ class Diffusion(L.LightningModule):
         return p_x0, copy_flag * xt + (1 - copy_flag) * _x
     
     def _ddpm_update_v1(self, xt, labels, t, dt, p_x0=None):
-        "removed zero-mask using sample_forward"
+        "removed zero-mask using sample_forward, relies on probabilities."
         # assert self.config.noise.type == 'loglinear'
 
         sigma_t, _ = self.noise(t)
@@ -666,55 +690,61 @@ class Diffusion(L.LightningModule):
 
         move_chance_t = 1 - torch.exp(-sigma_t)
         move_chance_s = 1 - torch.exp(-sigma_s)
-        move_chance_t = move_chance_t[:, None]
-        move_chance_s = move_chance_s[:, None]
 
-        # time_minus = move_chance_t-move_chance_s
-        # print(time_minus[0])
+        move_chance_s_1 = np.arccos(1-(t[0]-dt[0][0]).item()) / (math.pi * 0.5)
+        move_chance_t_1 = np.arccos(1-t[0].item()) / (math.pi * 0.5)
+
+        # jump_t = move_chance_t_1[0]
+        jump_t = move_chance_t_1
+
         # https://github.com/bytedance/1d-tokenizer/blob/main/modeling/maskgit.py#L157
-        # adding annealing temperature helps lower the FID, yet may hurt the recall(less diversity)
-        ann_temp = (0.5 + 0.8 * t)[0].item() 
-        # ann_temp = 1.0
+        # ann_temp = (0.4 + 0.9 * t)[0].item() # do not add annealing in llamagen settings!
+        ann_temp = 1.0
+        gumble_coeff = 1.2 * t[0].item() + 0.1
+        # gumble_coeff = 0.0
 
-        assert move_chance_t.ndim == 3, move_chance_t.shape
+        # assert move_chance_t.ndim == 3, move_chance_t.shape
 
         if p_x0 is None:
             # a linear cfg growth as t decrease from 1 to 0.
             if self.config.generation_cfg > 1 :
                 if self.config.sampling.cfg_schedule == 'linear':
-                    current_cfg = (self.config.generation_cfg - 1) * (1 + dt - t[0].item()) + 1
+                    current_cfg = (self.config.generation_cfg - 1) * (1 + dt[0].item() - t[0].item()) + 1
                 elif self.config.sampling.cfg_schedule == 'const': 
                     current_cfg = self.config.generation_cfg
                 elif self.config.sampling.cfg_schedule == 'biaslinear': 
                     offset = self.config.sampling.cfg_offset # starting from 1.0+ seems not ideal
-                    current_cfg = (self.config.generation_cfg - offset) * (1 + dt - t[0].item()) + offset
+                    current_cfg = (self.config.generation_cfg - offset) * (1 + dt[0].item() - t[0].item()) + offset
                 # print(f'Current cfg is {current_cfg}.')
                 labels_all = torch.cat([labels, 1000 * torch.ones_like(labels)])
                 p_x0_all, _ = self.sample_forward(xt.repeat(2,1), labels_all, sigma_t.repeat(2,1), temp=ann_temp)
 
-                p_x0_cond, p_x0_uncond = torch.split(p_x0_all, p_x0_all.shape[0] // 2, dim = 0)
-                p_x0_ = p_x0_uncond + current_cfg * (p_x0_cond - p_x0_uncond)
+                logits_cond, logits_uncond = torch.split(p_x0_all, p_x0_all.shape[0] // 2, dim = 0)
+                logits_cfg = logits_uncond + current_cfg * (logits_cond - logits_uncond)
                 # doing exp() after cfg can lower the FID by ~1.
-                p_x0 = F.softmax(p_x0_, dim=-1)
+                logits_with_noise = add_gumbel_noise(logits_cfg, gumble_coeff)
+                p_x0 = F.softmax(logits_with_noise, dim=-1)
                 # normalization may slightly hurt the FID (<0.05), but IS, sFID gets better. It also fits the MDLM theory.
                 # sum_tensor = p_x0_.sum(dim=-1, keepdim=True) 
                 # p_x0 = p_x0_ / sum_tensor
             else:
-                p_x0_, _ = self.sample_forward(xt, labels, sigma_t)
-                p_x0 = F.softmax(p_x0_,dim=-1)
+                logits_, _ = self.sample_forward(xt, labels, sigma_t)
+                logits_with_noise = add_gumbel_noise(logits_, gumble_coeff)
+                p_x0 = F.softmax(logits_with_noise, dim=-1)
 
         assert move_chance_t.ndim == p_x0.ndim
-        one_hot_x = move_chance_s[:, :, 0, None] * F.one_hot(xt, num_classes=p_x0.shape[2]) * (1.0 / self.config.mask_vocab_size) #
+        # breakpoint()
+        one_hot_x = move_chance_s_1 * F.one_hot(xt, num_classes=p_x0.shape[2]) * (1.0 / self.config.mask_vocab_size) #
     
-        q_xs = p_x0 * (move_chance_t - move_chance_s)
-        q_xs[:, :, self.mask_index_range[0]:] = one_hot_x[:, :, self.mask_index_range[0]:]
+        q_xs = p_x0 * (move_chance_t_1 - move_chance_s_1) / jump_t
+        q_xs[:, :, self.mask_index_range[0]:] = one_hot_x[:, :, self.mask_index_range[0]:] / jump_t
         # if a certain position of xt is mask, then _x may have mask.
         # if a certain position of xt is not mask, then _x is not mask.
         _x = _sample_categorical(q_xs)
         
         copy_flag = (xt < self.mask_index_range[0]).to(xt.dtype)
 
-        _x0 = copy_flag * xt + (1 - copy_flag) * _x
+        _xs = copy_flag * xt + (1 - copy_flag) * _x
 
         # delta = move_chance_t - move_chance_s
         # print(delta[0].item)
@@ -722,53 +752,41 @@ class Diffusion(L.LightningModule):
         # count = _x0 < 1024
         # print(count[0].sum())
 
-        return p_x0, _x0
+        return p_x0, _xs
     
     def _ddpm_update_final(self, xt, labels, t, dt, p_x0=None):
         "final update to correct bad tokens."
         # assert self.config.noise.type == 'loglinear'
 
         sigma_t, _ = self.noise(t)
-        sigma_s, _ = self.noise(t - dt)
 
         if t.ndim > 1:
             t = t.squeeze(-1)
-
-        move_chance_t = 1 - torch.exp(-sigma_t)
-        move_chance_s = 1 - torch.exp(-sigma_s)
-        move_chance_t = move_chance_t[:, None]
-        move_chance_s = move_chance_s[:, None]
-
-        assert move_chance_t.ndim == 3, move_chance_t.shape
 
         if p_x0 is None:
             # a linear cfg growth as t decrease from 1 to 0.
             if self.config.generation_cfg > 1 :
                 if self.config.sampling.cfg_schedule == 'linear':
-                    current_cfg = (self.config.generation_cfg - 1) * (1 + dt - t[0].item()) + 1
+                    current_cfg = (self.config.generation_cfg - 1) * (1 + dt[0].item() - t[0].item()) + 1
                 elif self.config.sampling.cfg_schedule == 'const': 
                     current_cfg = self.config.generation_cfg
                 elif self.config.sampling.cfg_schedule == 'biaslinear': 
                     offset = self.config.sampling.cfg_offset # starting from 1.0+ seems not ideal
-                    current_cfg = (self.config.generation_cfg - offset) * (1 + dt - t[0].item()) + offset
+                    current_cfg = (self.config.generation_cfg - offset) * (1 + dt[0].item() - t[0].item()) + offset
                 # print(f'Current cfg is {current_cfg}.')
                 labels_all = torch.cat([labels, 1000 * torch.ones_like(labels)])
-                p_x0_all, _ = self.sample_forward(xt.repeat(2,1), labels_all, sigma_t.repeat(2,1))
+                logits_all, _ = self.sample_forward_raw(xt.repeat(2,1), labels_all, sigma_t.repeat(2,1))
 
-                p_x0_cond, p_x0_uncond = torch.split(p_x0_all, p_x0_all.shape[0] // 2, dim = 0)
-                p_x0_ = p_x0_uncond + current_cfg * (p_x0_cond - p_x0_uncond)
-                p_x0 = F.softmax(p_x0_, dim=-1)
+                logits_cond, logits_uncond = torch.split(logits_all, logits_all.shape[0] // 2, dim = 0)
+                logits_cfg = logits_uncond + current_cfg * (logits_cond - logits_uncond)
+                p_x0 = F.softmax(logits_cfg, dim=-1)
             else:
-                p_x0_, _ = self.sample_forward(xt, labels, sigma_t)
-                p_x0 = F.softmax(p_x0_, dim=-1)
+                logits_cfg, _ = self.sample_forward_raw(xt, labels, sigma_t)
+                p_x0 = F.softmax(logits_cfg, dim=-1)
 
-        assert move_chance_t.ndim == p_x0.ndim
-        # one_hot_x = move_chance_s[:, :, 0, None] * F.one_hot(xt, num_classes=p_x0.shape[2]) * (1.0 / self.config.mask_vocab_size) #
-    
-        q_xs = p_x0
-        q_xs[:, :, self.mask_index_range[0]:] = 0.0
+        p_x0[:, :, self.mask_index_range[0]:] = 0.0
 
-        _x = _sample_categorical(q_xs)
+        _x = _sample_categorical(p_x0)
         
         copy_flag = (xt < self.mask_index_range[0]).to(xt.dtype)
 
@@ -776,8 +794,8 @@ class Diffusion(L.LightningModule):
 
         return p_x0, _x0
     
-    def _maskgit_update(self, xt, labels, t, dt, p_x0=None):
-        "maskgit sample method"
+    def _maskgit_update_old(self, xt, labels, t, dt, logits_x0=None):
+        "maskgit sample method, relies on logits. previous low-precision gumbel noise"
         # assert self.config.noise.type == 'loglinear'
         device = xt.device
         sigma_t, _ = self.noise(t)
@@ -786,12 +804,14 @@ class Diffusion(L.LightningModule):
         mask_ratio = 1 - torch.exp(-sigma_s)
         mask_ratio = mask_ratio[0].item()
 
+        # mask_ratio = np.arccos(1-(t-dt)[0].item()) / (math.pi * 0.5)
+
         if t.ndim > 1:
             t = t.squeeze(-1)
 
         ann_temp = (0.5 + 0.8 * t)[0].item()
 
-        if p_x0 is None:
+        if logits_x0 is None:
             # a linear cfg growth as t decrease from 1 to 0.
             if self.config.generation_cfg > 1 :
                 if self.config.sampling.cfg_schedule == 'linear':
@@ -803,80 +823,149 @@ class Diffusion(L.LightningModule):
                     current_cfg = (self.config.generation_cfg - offset) * (1 + dt - t[0].item()) + offset
                 # print(f'Current cfg is {current_cfg}.')
                 labels_all = torch.cat([labels, 1000 * torch.ones_like(labels)])
-                p_x0_all, _ = self.sample_forward_raw(xt.repeat(2,1), labels_all, sigma_t.repeat(2,1), temp=ann_temp)
+                logits_all, _ = self.sample_forward_raw(xt.repeat(2,1), labels_all, sigma_t.repeat(2,1), temp=ann_temp)
 
-                p_x0_cond, p_x0_uncond = torch.split(p_x0_all, p_x0_all.shape[0] // 2, dim = 0)
-                p_x0 = p_x0_uncond + current_cfg * (p_x0_cond - p_x0_uncond)
-                # p_x0 = p_x0_.exp() # pass the exp as it's operating on log scale
+                logits_cond, logits_uncond = torch.split(logits_all, logits_all.shape[0] // 2, dim = 0)
+                logits_x0 = logits_uncond + current_cfg * (logits_cond - logits_uncond)
+
             else:
-                p_x0, _ = self.sample_forward_raw(xt, labels, sigma_t)
-                # p_x0 = p_x0_.exp()
+                logits_x0, _ = self.sample_forward_raw(xt, labels, sigma_t)
+
+        # logits_x0 = logits_x0.to(torch.float64)
 
         def log(t, eps=1e-20):
             return torch.log(t.clamp(min=eps))
         def gumbel_noise(t):
             noise = torch.zeros_like(t).uniform_(0, 1)
             return -log(-log(noise))
-        def add_gumbel_noise(t, temperature):
+        def _add_gumbel_noise(t, temperature):
             return t + temperature * gumbel_noise(t)
         
         is_mask = (xt > (self.config.lm_vocab_size -1))
 
         ratio = t[0].item()
-        annealed_temp = 4.5 * ratio
+        annealed_temp = 2.0 * ratio + 0.1
 
-        sampled_ids = add_gumbel_noise(p_x0, annealed_temp).argmax(dim=-1)
-        sampled_logits = torch.squeeze(
-                torch.gather(p_x0, dim=-1, index=torch.unsqueeze(sampled_ids, -1)), -1)
-        sampled_ids = torch.where(is_mask, sampled_ids, xt)
-        sampled_logits = torch.where(is_mask, sampled_logits, +np.inf).float()
+        logits_with_noise = _add_gumbel_noise(logits_x0, annealed_temp)
 
-        mask_ratio = np.arccos(1 - ratio + 1e-6) / (math.pi * 0.5)
+        x0_pred = logits_with_noise.argmax(dim=-1)
+        # logits_x0[:, :, self.mask_index_range[0]:] = -np.inf
+        # sampled_ids = _sample_categorical(F.softmax(logits_x0, dim=-1))
+        x0_pred_logits = torch.squeeze(
+                torch.gather(logits_x0, dim=-1, index=torch.unsqueeze(x0_pred, -1)), -1)
+        x0_pred = torch.where(is_mask, x0_pred, xt)
+        x0_pred_logits = torch.where(is_mask, x0_pred_logits, +np.inf).float()
+
         
         mask_len = torch.Tensor([np.floor(self.seq_len * mask_ratio)]).to(device)
         mask_len = torch.maximum(torch.Tensor([1]).to(device),
                                  torch.minimum(torch.sum(is_mask, dim=-1, keepdims=True) - 1, mask_len))[0].squeeze()
-        confidence = add_gumbel_noise(sampled_logits, annealed_temp)
+        confidence = _add_gumbel_noise(x0_pred_logits, annealed_temp)
         sorted_confidence, _ = torch.sort(confidence, axis=-1)
         cut_off = sorted_confidence[:, mask_len.long() - 1:mask_len.long()]
-        masking = (confidence <= cut_off)
+        to_mask = (confidence <= cut_off)
 
-        count = (xt<1024)
-        print(f'decoded tokens: {count[0].sum()}')
+        _xs = torch.where(to_mask, self.config.lm_vocab_size, x0_pred)
 
-        print(f'remasked tokens: {masking[0].sum()}, corr ratio: {256* mask_ratio} \n')
-
-        if (t - dt).mean() < 1e-5:
-            ids = sampled_ids
-        else:
-            ids = torch.where(masking, 1024, sampled_ids)
-
-        # count = (ids<1024)
-        # print(count[0].sum())
-
-        return p_x0, ids
+        return logits_x0, _xs
     
-    def _flow_matching_update(self, xt, labels, t, dt, p_x0=None):
-        "flow-matching sample method"
+    def _maskgit_update(self, xt, labels, t, dt, logits_x0=None):
+        "maskgit sample method, relies on logits. using arXiv:2409.02908 new gumbel, merged as default"
         # assert self.config.noise.type == 'loglinear'
         device = xt.device
         sigma_t, _ = self.noise(t)
         sigma_s, _ = self.noise(t - dt)
 
-        move_chance_t = 1 - torch.exp(-sigma_t)
-        move_chance_s = 1 - torch.exp(-sigma_s)
-        jump_t = move_chance_t[0]
-        jump_s = move_chance_s[0]
-        move_chance_t = move_chance_t[:, None]
-        move_chance_s = move_chance_s[:, None]
-
         mask_ratio = 1 - torch.exp(-sigma_s)
         mask_ratio = mask_ratio[0].item()
+
+        # mask_ratio = np.arccos(1-(t-dt)[0].item()) / (math.pi * 0.5)
 
         if t.ndim > 1:
             t = t.squeeze(-1)
 
         ann_temp = (0.5 + 0.8 * t)[0].item()
+
+        if logits_x0 is None:
+            # a linear cfg growth as t decrease from 1 to 0.
+            if self.config.generation_cfg > 1 :
+                if self.config.sampling.cfg_schedule == 'linear':
+                    current_cfg = (self.config.generation_cfg - 1) * (1 + dt - t[0].item()) + 1
+                elif self.config.sampling.cfg_schedule == 'const': 
+                    current_cfg = self.config.generation_cfg
+                elif self.config.sampling.cfg_schedule == 'biaslinear': 
+                    offset = self.config.sampling.cfg_offset # starting from 1.0+ seems not ideal
+                    current_cfg = (self.config.generation_cfg - offset) * (1 + dt - t[0].item()) + offset
+                # print(f'Current cfg is {current_cfg}.')
+                labels_all = torch.cat([labels, 1000 * torch.ones_like(labels)])
+                logits_all, _ = self.sample_forward_raw(xt.repeat(2,1), labels_all, sigma_t.repeat(2,1), temp=ann_temp)
+
+                logits_cond, logits_uncond = torch.split(logits_all, logits_all.shape[0] // 2, dim = 0)
+                logits_x0 = logits_uncond + current_cfg * (logits_cond - logits_uncond)
+
+            else:
+                logits_x0, _ = self.sample_forward_raw(xt, labels, sigma_t)
+
+        
+        is_mask = (xt > (self.config.lm_vocab_size -1))
+
+        ratio = t[0].item()
+        annealed_temp = 2.0 * ratio + 0.1 # 4.5 for maskgit tokenizer
+        # sample_temp = 1.0
+
+        logits_with_noise = add_gumbel_noise(logits_x0, annealed_temp)
+
+        x0_pred = logits_with_noise.argmax(dim=-1)
+        x0_pred_logits = torch.squeeze(
+                torch.gather(logits_x0, dim=-1, index=torch.unsqueeze(x0_pred, -1)), -1)
+        x0_pred = torch.where(is_mask, x0_pred, xt) # paste the newly decoded tokens to xt, get _x0
+        x0_pred_logits = torch.where(is_mask, x0_pred_logits, +np.inf).float() # carry out the old tokens' logit to inf.
+
+        # mask_ratio = np.arccos(1 - ratio + 1e-6) / (math.pi * 0.5)
+        
+        mask_len = torch.Tensor([np.floor(self.seq_len * mask_ratio)]).to(device)
+        mask_len = torch.maximum(torch.Tensor([1]).to(device),
+                                 torch.minimum(torch.sum(is_mask, dim=-1, keepdims=True) - 1, mask_len))[0].squeeze()
+        confidence = add_gumbel_noise(x0_pred_logits, annealed_temp)
+        sorted_confidence, _ = torch.sort(confidence, axis=-1)
+        cut_off = sorted_confidence[:, mask_len.long() - 1:mask_len.long()]
+        to_mask = (confidence <= cut_off)
+
+        # count_prev = xt < self.config.lm_vocab_size
+
+        _xs = torch.where(to_mask, self.config.lm_vocab_size, x0_pred)
+
+        # count_new = ids < self.config.lm_vocab_size
+
+        # alter = count_prev.to(torch.int) - count_new.to(torch.int)
+        # print(alter.max().item())
+        # print(count[0].sum())
+
+        return logits_x0, _xs
+    
+    def _flow_matching_update(self, xt, labels, t, dt, p_x0=None):
+        "flow-matching sample method, relies on probabilities."
+        # assert self.config.noise.type == 'loglinear'
+        device = xt.device
+        sigma_t, _ = self.noise(t)
+        sigma_s, _ = self.noise(t - dt)
+        # pi = torch.pi
+
+        move_chance_t = 1 - torch.exp(-sigma_t)
+        move_chance_s = 1 - torch.exp(-sigma_s)
+        jump_t = move_chance_t[0] 
+        jump_s = move_chance_s[0] 
+        
+        # kt = ((1 - torch.exp(-sigma_t)**2)**0.5)[0] # sin (pi/2 * 1-t) universal
+        # d_kt = (pi/2 * torch.exp(-sigma_t))[0] # pi/2 * cos(pi/2 * 1-t) only for cosine !
+        move_chance_t = move_chance_t[:, None]
+        move_chance_s = move_chance_s[:, None]
+
+        if t.ndim > 1:
+            t = t.squeeze(-1)
+
+        ann_temp = (0.5 + 0.8 * t)[0].item() # important and useful
+        # ann_temp = 1.0
 
         if p_x0 is None:
             # a linear cfg growth as t decrease from 1 to 0.
@@ -890,57 +979,152 @@ class Diffusion(L.LightningModule):
                     current_cfg = (self.config.generation_cfg - offset) * (1 + dt - t[0].item()) + offset
                 # print(f'Current cfg is {current_cfg}.')
                 labels_all = torch.cat([labels, 1000 * torch.ones_like(labels)])
-                p_x0_all, _ = self.sample_forward_raw(xt.repeat(2,1), labels_all, sigma_t.repeat(2,1), temp=1.0)
-                breakpoint()
+                logits_all, _ = self.sample_forward_raw(xt.repeat(2,1), labels_all, sigma_t.repeat(2,1), temp=ann_temp)
 
-                p_x0_cond, p_x0_uncond = torch.split(p_x0_all, p_x0_all.shape[0] // 2, dim = 0)
-                p_x0 = p_x0_uncond + current_cfg * (p_x0_cond - p_x0_uncond)
-                # p_x0 = p_x0_.exp() 
+                logits_cond, logits_uncond = torch.split(logits_all, logits_all.shape[0] // 2, dim = 0)
+                logits_x0 = logits_uncond + current_cfg * (logits_cond - logits_uncond)
+                # p_x0 = torch.softmax(logits_cfg, dim=-1)
             else:
-                p_x0, _ = self.sample_forward_raw(xt, labels, sigma_t)
+                logits_x0, _ = self.sample_forward_raw(xt, labels, sigma_t)
+                # p_x0 = torch.softmax(logits_cfg, dim=-1)
                 # p_x0 = p_x0_.exp()
+        # flow matching is based on softmax results
 
-        _x0 = _sample_categorical(p_x0)
+        # annealed_temp = 1.5 * t[0].item() + 0.1 # 4.5 for maskgit tokenizer
+        # sample_temp = 1.0
 
-        if (t - dt).mean() < 1e-5:
-            xs = _x0
-        else:
-            xs = xt.clone()
-            delta_x0 = F.one_hot(_x0, num_classes=p_x0.shape[2])
-            delta_xt = F.one_hot(xt, num_classes=p_x0.shape[2])
+        # logits_with_noise = add_gumbel_noise(logits_x0, annealed_temp)
+        # p_x0_noised = F.softmax(logits_with_noise,dim=-1)
+        p_x0 = F.softmax(logits_x0,dim=-1)
 
-            correct = jump_s / jump_t * F.one_hot(xt, num_classes=p_x0_cond.shape[2]) * (1.0 / self.config.mask_vocab_size)
-
-            u = (jump_t - jump_s) / jump_t * delta_x0
-            # u at every unmasked tokens is 0 (unmasked tokens will not alter).
-            u = torch.where(delta_xt.to(dtype=torch.bool), torch.zeros_like(u), u)
-
-            # u[:, :, self.mask_index_range[0]:] = correct[:, :, self.mask_index_range[0]:]
-
-            intensity = u.sum(dim=-1)
-            breakpoint()
-
-            mask_jump = torch.rand(size = xt.shape, device = device)< 1- torch.exp(-dt* intensity)
-
-            xs[mask_jump] = _sample_categorical(u[mask_jump].to(dtype=torch.float32))
-            
-            # copy_flag = (xt < self.mask_index_range[0]).to(xt.dtype)
-
-            # _x0 = copy_flag * xt + (1 - copy_flag) * _x
-
-        # print(f'decoded tokens: {count[0].sum()}')
-
-        # print(f'remasked tokens: {masking[0].sum()}, corr ratio: {256* mask_ratio} \n')
+        _x0_pred = _sample_categorical(p_x0)
 
         # if (t - dt).mean() < 1e-5:
-        #     ids = sampled_ids
+        #     xs = _x0 # this needs to be determined!
         # else:
-        #     ids = torch.where(masking, 1024, sampled_ids)
+        xs = xt.clone()
+        delta_x0 = F.one_hot(_x0_pred, num_classes=p_x0.shape[2])
+        delta_xt = F.one_hot(xt, num_classes=p_x0.shape[2])
 
-        count = (xs<1024)
-        print(count[0].sum())
+        correct = jump_s / jump_t * F.one_hot(xt, num_classes=logits_cond.shape[2]) * (1.0 / self.config.mask_vocab_size)
+
+        # u = (jump_t - jump_s) * p_x0 / jump_t # adapted
+        u = (jump_t - jump_s) * delta_x0 / jump_t # vanilla is slightly better!
+
+        u[:, :, self.mask_index_range[0]:] = correct[:, :, self.mask_index_range[0]:]
+        
+        u = torch.where(delta_xt.to(dtype=torch.bool), torch.zeros_like(u), u)
+
+        # the above calculation is:  u  = coeff * (p_x0 - dirac_xt), coeff = dkt/(1- kt)
+        # then, p_xs ~ dirac_xt + h * u
+
+        intensity = u.sum(dim=-1)
+        # breakpoint()
+
+        mask_jump = torch.rand(size = xt.shape, device = device)< 1- torch.exp(-intensity)
+
+        # mask_jump = torch.rand(size = xt.shape, device = device) < 1- torch.exp(-dt)*intensity
+
+        xs[mask_jump] = _sample_categorical(u[mask_jump].to(dtype=torch.float32))
+
+        # count_prev = xt < self.config.lm_vocab_size
+        # count_new = xs < self.config.lm_vocab_size
+        # total_alter = (mask_jump[0].to(torch.int)).sum()
+        # newly_unmask = (count_new[0].to(torch.int) - count_prev[0].to(torch.int)).sum()
+        # just_updated = total_alter - newly_unmask
+        # really_changed = ((xs!=xt)[0].to(torch.int)).sum() - newly_unmask
+
+        # print(f'total alter: {total_alter.item()}, newly unmasked: {newly_unmask}, just updated: {just_updated}, really changed: {really_changed}.')
+            
+        # count = (xs<self.config.lm_vocab_size)
+        # print(f'decoded tokens: {count[0].sum()}')
 
         return p_x0, xs
+    
+    def _flow_matching_update_new(self, xt, labels, t, dt, p_x0=None):
+        "flow-matching sample method, relies on probabilities."
+        # assert self.config.noise.type == 'loglinear'
+        device = xt.device
+        sigma_t, _ = self.noise(t)
+        sigma_s, _ = self.noise(t - dt)
+        # pi = torch.pi
+
+        move_chance_t = 1 - torch.exp(-sigma_t)
+        move_chance_s = 1 - torch.exp(-sigma_s)
+        jump_t = move_chance_t[0] 
+        jump_s = move_chance_s[0] 
+        
+        # kt = ((1 - torch.exp(-sigma_t)**2)**0.5)[0] # sin (pi/2 * 1-t) universal
+        # d_kt = (pi/2 * torch.exp(-sigma_t))[0] # pi/2 * cos(pi/2 * 1-t) only for cosine !
+        move_chance_t = move_chance_t[:, None]
+        move_chance_s = move_chance_s[:, None]
+
+        if t.ndim > 1:
+            t = t.squeeze(-1)
+
+        ann_temp = (0.5 + 0.8 * t)[0].item() # important and useful
+        # ann_temp = 1.0
+
+        if p_x0 is None:
+            # a linear cfg growth as t decrease from 1 to 0.
+            if self.config.generation_cfg > 1 :
+                if self.config.sampling.cfg_schedule == 'linear':
+                    current_cfg = (self.config.generation_cfg - 1) * (1 + dt - t[0].item()) + 1
+                elif self.config.sampling.cfg_schedule == 'const': 
+                    current_cfg = self.config.generation_cfg
+                elif self.config.sampling.cfg_schedule == 'biaslinear': 
+                    offset = self.config.sampling.cfg_offset # starting from 1.0+ seems not ideal
+                    current_cfg = (self.config.generation_cfg - offset) * (1 + dt - t[0].item()) + offset
+                # print(f'Current cfg is {current_cfg}.')
+                labels_all = torch.cat([labels, 1000 * torch.ones_like(labels)])
+                logits_all, _ = self.sample_forward_raw(xt.repeat(2,1), labels_all, sigma_t.repeat(2,1), temp=ann_temp)
+
+                logits_cond, logits_uncond = torch.split(logits_all, logits_all.shape[0] // 2, dim = 0)
+                logits_x0 = logits_uncond + current_cfg * (logits_cond - logits_uncond)
+                # p_x0 = torch.softmax(logits_cfg, dim=-1)
+            else:
+                logits_x0, _ = self.sample_forward_raw(xt, labels, sigma_t)
+                # p_x0 = torch.softmax(logits_cfg, dim=-1)
+                # p_x0 = p_x0_.exp()
+        # flow matching is based on softmax results
+
+        # annealed_temp = 1.5 * t[0].item() + 0.1 # 4.5 for maskgit tokenizer
+        # sample_temp = 1.0
+
+        # logits_with_noise = add_gumbel_noise(logits_x0, annealed_temp)
+        # p_x0_noised = F.softmax(logits_with_noise,dim=-1)
+        p_x0 = F.softmax(logits_x0,dim=-1)
+
+        delta_xt = F.one_hot(xt, num_classes=p_x0.shape[2])
+
+        u =  (p_x0 - delta_xt) / jump_t 
+
+        p_xs = delta_xt + (jump_t - jump_s) * u
+
+        _xs = _sample_categorical(p_xs)
+
+        # intensity = u.sum(dim=-1)
+        # # breakpoint()
+
+        # mask_jump = torch.rand(size = xt.shape, device = device)< 1- torch.exp(-intensity)
+
+        # # mask_jump = torch.rand(size = xt.shape, device = device) < 1- torch.exp(-dt)*intensity
+
+        # xs[mask_jump] = _sample_categorical(u[mask_jump].to(dtype=torch.float32))
+
+        # count_prev = xt < self.config.lm_vocab_size
+        # count_new = xs < self.config.lm_vocab_size
+        # total_alter = (mask_jump[0].to(torch.int)).sum()
+        # newly_unmask = (count_new[0].to(torch.int) - count_prev[0].to(torch.int)).sum()
+        # just_updated = total_alter - newly_unmask
+        # really_changed = ((xs!=xt)[0].to(torch.int)).sum() - newly_unmask
+
+        # print(f'total alter: {total_alter.item()}, newly unmasked: {newly_unmask}, just updated: {just_updated}, really changed: {really_changed}.')
+            
+        # count = (_xs < self.config.lm_vocab_size)
+        # print(f'decoded tokens: {count[0].sum()}')
+
+        return p_x0, _xs
     
     def _ddpm_update_v1_1(self, xt, labels, t, dt, p_x0=None):
         "removed zero-mask using sample_forward"

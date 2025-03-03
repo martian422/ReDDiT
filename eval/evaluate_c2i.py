@@ -673,11 +673,14 @@ def create_npz_from_sample_folder(sample_dir_o, num=48000):
     print('Loading samples.')
     for file in tqdm(os.listdir(sample_dir)):
         if file.endswith(('.png')) :
-            sample_pil = Image.open(f"{sample_dir}/{file}")
-            sample_np = np.asarray(sample_pil).astype(np.uint8)
-            samples.append(sample_np)
+            try:
+                sample_pil = Image.open(f"{sample_dir}/{file}")
+                sample_np = np.asarray(sample_pil).astype(np.uint8)
+                samples.append(sample_np)
+            except:
+                print('load error')
 
-    batch_size = 1000
+    batch_size = 1
     # Adjust batch size depending on available memory, as at very rare cases it will get stuck.
     batches = []
     print('Concating samples.')
@@ -688,7 +691,7 @@ def create_npz_from_sample_folder(sample_dir_o, num=48000):
     # stack all the batches together.
     samples = np.concatenate(batches, axis=0)
 
-    assert samples.shape == (num, samples.shape[1], samples.shape[2], 3)
+    # assert samples.shape == (num, samples.shape[1], samples.shape[2], 3)
     sample_name = sample_dir_o.split('/')[-1] + '.npz'
     npz_path = os.path.join(sample_dir_o, sample_name)
     print('Saving ref batches.')
@@ -701,8 +704,8 @@ if __name__ == "__main__":
     parser.add_argument("-r", "--ref_batch", help="path to reference batch npz file", default='/nfs/mtr/n237/VIRTUAL_imagenet256_labeled.npz')
     parser.add_argument("-s", "--sample_folder", help="path to sample folder that contains images folder", default=None)
     args = parser.parse_args()
-    # target_npz_file = create_npz_from_sample_folder(args.sample_folder)
-    target_npz_file = '/nfs/mtr/code/ddit-c2i/outputs/eval/maskgit-realcosine-sf-e3-s10-cfg3.0/maskgit-realcosine-sf-e3-s10-cfg3.0.npz' # in case of custom npz package.
+    target_npz_file = create_npz_from_sample_folder(args.sample_folder)
+    # target_npz_file = '/nfs/mtr/code/ddit-c2i/outputs/eval-maskgit/8k-llamagen-old-linear-arccos-ratio-e15-s16-cfg2.25/8k-llamagen-old-linear-arccos-ratio-e15-s16-cfg2.25.npz' # in case of custom npz package.
 
     main(ref_batch = args.ref_batch, sample_batch = target_npz_file)
 

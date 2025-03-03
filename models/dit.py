@@ -117,7 +117,8 @@ class Rotary2D(torch.nn.Module):
     def __init__(self, dim, base=10_000):
         super().__init__()
         half_dim = dim//2
-        inv_freq = 1.0 / (base ** (torch.arange(0, half_dim, 2)[: (half_dim // 2)].float() / half_dim))
+        # prepare the half base for sin-cos modulation.
+        inv_freq = 1.0 / (base ** (torch.arange(0, half_dim, 2)[: (half_dim // 2)].float() / half_dim)) 
         self.register_buffer('inv_freq', inv_freq)
         self.grid = 16
         self.seq_len_cached = None
