@@ -28,8 +28,8 @@ T: 0  # 0 (continuous time) / 1000
 random_noise: False
 
 repa_loss:
-  target_res: 224
-  ds_ratio: 14
+  psz: 14
+  latent_size: 16
   vq_ckpt: /nfs/mtr/pretrained/vq_ds16_c2i.pt
   use_repa: True
   projector_dim: 2048

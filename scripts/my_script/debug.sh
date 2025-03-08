@@ -27,6 +27,7 @@ CUDA_VISIBLE_DEVICES=0 torchrun \
     rope=2d \
     carry_over=True \
     repa_loss.use_repa=True \
+    repa_loss.latent_size=32 \
     optim.lr=5e-4 \
     data.size=1M \
     parameterization=subs \

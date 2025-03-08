@@ -4,10 +4,10 @@ set -x
 export WANDB_DISABLED=true
 export PYTHONPATH=$PYTHONPATH:/nfs/mtr/code/ddit-c2i
 
-MODEL_PATH=/nfs/mtr/code/ddit-c2i/outputs/mask-ddit-std-L-2dp-repa8/02-05-144905/checkpoints/15-400000.ckpt
+MODEL_PATH=/nfs/mtr/code/ddit-c2i/outputs/ddit-gitmodel-linear-bs1024-m16/03-05-113306/checkpoints/9-120000.ckpt
 
 CFG_SCALE=2.25
-SAMPLE_STEP=40
+SAMPLE_STEP=20
 EPOCH=$(echo "$MODEL_PATH" | sed -E 's#.*/([^/]+)-.*#\1#')
 
 NAME=${1:-"NOBODY"}
@@ -20,12 +20,12 @@ for GPU_ID in {0..7}; do
     python batch_inference.py \
     mode=eval \
     vq=llamagen \
-    model=L-dit-model \
+    model=maskgit \
     model.length=256 \
     backbone=dit \
     lm_vocab_size=16384 \
     data=llamaGen-token \
-    mask_vocab_size=1 \
+    mask_vocab_size=16 \
     generation_cfg=$CFG_SCALE \
     ar_cfg=False \
     rope=2d \
@@ -41,7 +41,7 @@ for GPU_ID in {0..7}; do
     eval.disable_ema=True \
     sampling.cfg_schedule=const \
     sampling.cfg_offset=2.0 \
-    sampling.predictor=flow_matching \
+    sampling.predictor=ddpm \
     sampling.steps=$SAMPLE_STEP \
     sampling.return_intermediate=0 \
     sampling.num_sample_batches=1 &

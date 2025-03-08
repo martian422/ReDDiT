@@ -5,10 +5,10 @@ export WANDB_DISABLED=true
 # export CUDA_LAUNCH_BLOCKING=1
 export PYTHONPATH=$PYTHONPATH:/nfs/mtr/code/ddit-c2i
 
-MODEL_PATH=/nfs/mtr/code/ddit-c2i/outputs/mask-ddit-std-L-2dp-repa8/02-05-144905/checkpoints/15-400000.ckpt
+MODEL_PATH=/nfs/mtr/code/ddit-c2i/outputs/ddit-gitmodel-linear-bs1024-m16/03-05-113306/checkpoints/9-120000.ckpt
 
 CFG_SCALE=2.25
-SAMPLE_STEP=40
+SAMPLE_STEP=15
 EPOCH=$(echo "$MODEL_PATH" | sed -E 's#.*/([^/]+)-.*#\1#')
 
 NAME=${1:-"NOBODY"}
@@ -20,26 +20,26 @@ CUDA_VISIBLE_DEVICES=0 \
     python batch_inference.py \
     mode=eval \
     vq=llamagen \
-    model=L-dit-model \
+    model=maskgit \
     model.length=256 \
     lm_vocab_size=16384 \
     backbone=dit \
     data=llamaGen-both \
-    mask_vocab_size=1 \
+    mask_vocab_size=16 \
     generation_cfg=$CFG_SCALE \
     rope=2d \
     seed=1 \
-    noise=loglinear \
+    noise=cosine \
     time_conditioning=True \
     loader.eval_batch_size=1 \
     eval.mark=$NAME-e$EPOCH-s$SAMPLE_STEP-cfg$CFG_SCALE \
     eval.mode=sample \
-    eval.timeline=slow-fast \
+    eval.timeline=linear \
     eval.checkpoint_path=$MODEL_PATH \
     eval.disable_ema=True \
     sampling.cfg_schedule=const \
     sampling.cfg_offset=2.0 \
-    sampling.predictor=flow_matching \
+    sampling.predictor=ddpm \
     sampling.steps=$SAMPLE_STEP \
     sampling.return_intermediate=0 \
     sampling.num_sample_batches=1 \

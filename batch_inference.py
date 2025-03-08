@@ -86,8 +86,12 @@ def generate_samples(config, logger):
 
         vocab = 1024 - 1
         decode_range = (0, 1)
+    elif config.vq == 'sdf8':
+        decode_range = (-1, 1)
+        vocab = 16384 - 1
+        raise ValueError("TBD, check it out!")
     else:
-        raise ValueError
+        raise ValueError("Unsupported tokenizer!")
 
     model = _load_from_checkpoint(config=config)
     model = model.to(device)
@@ -142,7 +146,7 @@ def generate_samples(config, logger):
                 if model.sampler == 'ddpm':
                     _, x_next = model._ddpm_update_v1(
                         x, labels, t_t, t_t - t_s, p_x0=None)
-                    x = x_next
+                    x = model.q_xt_hash(x_next)
                     t_t = t_s
                 elif model.sampler == 'maskgit':
                     _, x_next = model._maskgit_update(
@@ -150,7 +154,7 @@ def generate_samples(config, logger):
                     x = x_next
                     t_t = t_s
                 elif model.sampler == 'flow_matching':
-                    _, x_next = model._flow_matching_update_new(
+                    _, x_next = model._flow_matching_update(
                         x, labels, t_t, t_t - t_s, p_x0=None)
                     x = x_next
                     t_t = t_s
@@ -183,6 +187,9 @@ def generate_samples(config, logger):
             elif config.vq == 'maskgit':
                 x_decode = vq_model.decode_tokens(x)
                 x_decode = torch.clamp(x_decode, 0.0, 1.0) # FIXME: whether to reserve this or directly normalize into (-1,1)?
+            elif config.vq == 'sdf8':
+                x_decode = vq_model.decode_tokens(x)
+                x_decode = torch.clamp(x_decode, -1.0, 1.0) # FIXME: whether to reserve this or directly normalize into (-1,1)?
             else:
                 raise ValueError
             # x_decode = F.interpolate(x_decode, size=(256, 256), mode='bicubic')

@@ -28,7 +28,7 @@ omegaconf.OmegaConf.register_new_resolver(
 @torch.no_grad()
 def load_encoder_dinov2(config):
     encoder_dir= config.repa_loss.dino_model
-    latent_size = int(config.repa_loss.target_res / config.repa_loss.ds_ratio)
+    latent_size = config.repa_loss.latent_size
     encoder = torch.hub.load('facebookresearch/dinov2', encoder_dir)
     del encoder.head
     encoder.pos_embed.data = timm.layers.pos_embed.resample_abs_pos_embed(

@@ -114,13 +114,13 @@ class Rotary(torch.nn.Module):
         return self.cos_cached, self.sin_cached
 
 class Rotary2D(torch.nn.Module):
-    def __init__(self, dim, base=10_000):
+    def __init__(self, dim, base=10_000, grid = 16):
         super().__init__()
         half_dim = dim//2
         # prepare the half base for sin-cos modulation.
         inv_freq = 1.0 / (base ** (torch.arange(0, half_dim, 2)[: (half_dim // 2)].float() / half_dim)) 
         self.register_buffer('inv_freq', inv_freq)
-        self.grid = 16
+        self.grid = grid
         self.seq_len_cached = None
         self.cos_cached = None
         self.sin_cached = None
@@ -138,13 +138,6 @@ class Rotary2D(torch.nn.Module):
             emb = torch.concat([freqs_x.flatten(0,1), freqs_y.flatten(0,1)], dim = -1)
             self.cos_cached = emb.cos()[None, :, None, None, :].repeat(1, 1, 3, 1, 1)
             self.sin_cached = emb.sin()[None, :, None, None, :].repeat(1, 1, 3, 1, 1)
-            # freqs_grid = torch.concat([
-            #     freqs[:, None, :].expand(-1, self.grid, -1),
-            #     freqs[None, :, :].expand(self.grid, -1, -1),
-            # ], dim=-1)
-            # freqs_flatten = freqs_grid.flatten(0,1)
-            # self.cos_cached = freqs_flatten.cos()[None, :, None, None, :].repeat(1, 1, 3, 1, 1)
-            # self.sin_cached = freqs_flatten.sin()[None, :, None, None, :].repeat(1, 1, 3, 1, 1)
             # # keep identity transform for v, only rotate q and k.
             self.cos_cached[:,:,2,:,:].fill_(1.)
             self.sin_cached[:,:,2,:,:].fill_(0.)
@@ -256,9 +249,7 @@ class LabelEmbedder(nn.Module):
         super().__init__()
         self.embedding_table = nn.Embedding(num_classes + 1, cond_size)
         self.num_classes = num_classes
-
-
-        # TODO think of initializing with 0.02 std deviation like in original DiT paper
+        # torch.nn.init.normal_(self.embedding_table.weight, std=.02)
 
     def forward(self, labels):
         embeddings = self.embedding_table(labels)
@@ -407,7 +398,7 @@ class DIT(nn.Module, huggingface_hub.PyTorchModelHubMixin):
         self.label_embed = LabelEmbedder(1000, config.model.cond_dim)
         self.sigma_map = TimestepEmbedder(config.model.cond_dim)
         if self.config.rope=='2d':
-            self.rotary_emb = Rotary2D(config.model.hidden_size // config.model.n_heads)
+            self.rotary_emb = Rotary2D(config.model.hidden_size // config.model.n_heads, grid = int((config.model.length)**0.5))
         else:
             self.rotary_emb = Rotary(config.model.hidden_size // config.model.n_heads)
 
