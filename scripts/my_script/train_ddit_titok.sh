@@ -30,7 +30,6 @@ CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 torchrun \
     rope=1d \
     repa_loss.use_repa=False \
     optim.lr=4e-4 \
-    data.size=4M \
     time_conditioning=True \
     parameterization=subs \
     mask_vocab_size=1 \

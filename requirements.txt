@@ -22,6 +22,6 @@ wandb
 ftfy
 accelerate
 bs4
-flash-attn
+# flash-attn
 
 # pip3 install -U xformers --index-url https://download.pytorch.org/whl/cu121

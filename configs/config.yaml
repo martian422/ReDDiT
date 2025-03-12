@@ -1,8 +1,8 @@
 defaults:
   - _self_
   - /callbacks: [checkpoint_every_n_steps, checkpoint_monitor, learning_rate_monitor]
-  - /data: openwebtext
-  - /model: small
+  - /data: llamaGen-both
+  - /model: maskgit
   - /strategy: ddp
   - /noise: loglinear
   - /lr_scheduler: cosine_decay_warmup

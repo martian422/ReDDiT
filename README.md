@@ -1,6 +1,5 @@
-# [Simple and Effective Masked Diffusion Language Models](http://arxiv.org/abs/2406.07524)
-By [Subham Sekhar Sahoo](https://s-sahoo.github.io), [Marianne Arriola](https://mariannearriola.github.io), [Yair Schiff](https://yair-schiff.github.io), [Aaron Gokaslan](https://skylion007.github.io), [Edgar Marroquin](https://emarro.github.io),
-[Justin T Chiu](https://justinchiu.netlify.app), [Alexander Rush](https://rush-nlp.com), [Volodymyr Kuleshov](https://www.cs.cornell.edu/~kuleshov/)
+# [Spectrum-Masked Sampling for Discrete Image Diffusion](http://arxiv.org/abs/2406.07524)
+By [Tianren Ma](https://martian422.github.io), [Xiaosong Zhang](https://zhangxiaosong18.github.io)
 
 [![arXiv](https://img.shields.io/badge/arXiv-2406.07524-red.svg)](https://arxiv.org/abs/2406.07524)
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/18nC6q7dWq154fI1BXPLwmtnS7Zvbrv6p?usp=sharing/)
@@ -221,7 +220,7 @@ python main.py \
 ```
 
 ### Acknowledgements
-This repository was built off of [SEDD](https://github.com/louaaron/Score-Entropy-Discrete-Diffusion).
+This repository was built off of [MDLM](https://github.com/kuleshov-group/mdlm).
 
 ## Citation
 ```

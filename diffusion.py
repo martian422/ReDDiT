@@ -730,8 +730,8 @@ class Diffusion(L.LightningModule):
         # breakpoint()
         # one_hot_x = k_s * F.one_hot(xt, num_classes=p_x0.shape[2]) * (1.0 / self.config.mask_vocab_size) #
         # one_hot_x = k_s * F.one_hot(xt, num_classes=p_x0.shape[2]) 
-        p_mask = k_s / self.config.mask_vocab_size
-        # p_mask = k_s
+        # p_mask = k_s / self.config.mask_vocab_size # when the mask_vocab is too large, this move makes it hard to sample masks.
+        p_mask = k_s # no div, carry out the first, then use hash to make colorful noise
     
         q_xs = p_x0 * (k_t - k_s) / k_t
         # q_xs[:, :, self.mask_index_range[0]:] = p_mask / k_t
@@ -1299,7 +1299,7 @@ class Diffusion(L.LightningModule):
 
         loss, proj_loss = self._forward_pass_diffusion_XX(input_ids, text_embeds, zs)
 
-        loss_mask =torch.ones(input_ids.shape,dtype=torch.int,device=loss.device)
+        loss_mask = torch.ones(input_ids.shape,dtype=torch.int,device=loss.device)
         nlls = loss * loss_mask
         count = loss_mask.sum()
 

@@ -13,7 +13,7 @@ import diffusion
 import utils
 import timm
 
-from llamaGen.vq_model import VQ_models
+from tokenizer.llamagen_vq import VQ_models
 
 
 omegaconf.OmegaConf.register_new_resolver(

@@ -4,7 +4,7 @@ from tqdm import tqdm
 import hydra
 import lightning as L
 import omegaconf
-import rich.syntax
+
 import rich.tree
 import torch
 from torchvision.utils import save_image
@@ -15,9 +15,6 @@ import diffusion
 import utils
 import math
 
-from llamaGen.vq_model import VQ_models
-
-from llamaGen.maskgit import PretrainedTokenizer
 
 omegaconf.OmegaConf.register_new_resolver(
     'cwd', os.getcwd)
@@ -30,9 +27,6 @@ omegaconf.OmegaConf.register_new_resolver(
 
 
 def _load_from_checkpoint(config):
-    if 'hf' in config.backbone:
-        return diffusion.Diffusion(
-            config).to('cuda')
     
     return diffusion.Diffusion.load_from_checkpoint(
         config.eval.checkpoint_path,
@@ -58,6 +52,7 @@ def generate_samples(config, logger):
         os.makedirs(save_path_images, exist_ok=True)
         # os.makedirs(save_path_codes, exist_ok=True)
     if config.vq == 'llamagen':
+        from tokenizer.llamagen_vq import VQ_models
 
         vq_model = VQ_models["VQ-16"](
             codebook_size=16384,
@@ -72,11 +67,13 @@ def generate_samples(config, logger):
         for p in vq_model.parameters():
             p.requires_grad = False
 
-        print(f"llamaGen tokenizer is loaded")
+        print(f"tokenizer tokenizer is loaded")
         vocab = 16384 - 1
         decode_range = (-1, 1)
 
     elif config.vq == 'maskgit':
+        from tokenizer.maskgit import PretrainedTokenizer
+
         vq_model = PretrainedTokenizer("/nfs/mtr/pretrained/maskgit-vqgan-imagenet-f16-256.bin")
     
         vq_model.eval()
@@ -86,10 +83,21 @@ def generate_samples(config, logger):
 
         vocab = 1024 - 1
         decode_range = (0, 1)
+
     elif config.vq == 'sdf8':
+        from omegaconf import OmegaConf
+        from tokenizer.ldm.util import instantiate_from_config
+        ldm_config = OmegaConf.load('/nfs/mtr/pretrained/sd-vq-ds8/config.yaml')
+        pl_sd = torch.load('/nfs/mtr/pretrained/sd-vq-ds8/model.ckpt', map_location="cpu")
+        sd = pl_sd["state_dict"]
+        vq_model = instantiate_from_config(ldm_config.model)
+        vq_model.load_state_dict(sd, strict=False)
+        vq_model.eval()
+        vq_model.requires_grad_(False)
+        vq_model = vq_model.to(device)
         decode_range = (-1, 1)
         vocab = 16384 - 1
-        raise ValueError("TBD, check it out!")
+        # raise ValueError("TBD, check it out!")
     else:
         raise ValueError("Unsupported tokenizer!")
 
@@ -189,7 +197,7 @@ def generate_samples(config, logger):
                 x_decode = torch.clamp(x_decode, 0.0, 1.0) # FIXME: whether to reserve this or directly normalize into (-1,1)?
             elif config.vq == 'sdf8':
                 x_decode = vq_model.decode_tokens(x)
-                x_decode = torch.clamp(x_decode, -1.0, 1.0) # FIXME: whether to reserve this or directly normalize into (-1,1)?
+                x_decode = torch.clamp(x_decode, -1.0, 1.0)
             else:
                 raise ValueError
             # x_decode = F.interpolate(x_decode, size=(256, 256), mode='bicubic')
