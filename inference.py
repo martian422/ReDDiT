@@ -8,7 +8,7 @@ import rich.syntax
 import rich.tree
 import torch
 
-import dataloader_t2i as dataloader
+import dataloader_c2i as dataloader
 import diffusion
 import utils
 

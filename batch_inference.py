@@ -98,6 +98,22 @@ def generate_samples(config, logger):
         decode_range = (-1, 1)
         vocab = 16384 - 1
         # raise ValueError("TBD, check it out!")
+
+    elif config.vq == 'IBQ':
+        from omegaconf import OmegaConf
+        from tokenizer.IBQ.models.ibqgan import IBQ
+        config = OmegaConf.load('/nfs/mtr/pretrained/IBQ-16384/imagenet_ibqgan_16384.yaml')
+        vq_model = IBQ(**config.model.init_args)
+
+        sd = torch.load('/nfs/mtr/pretrained/IBQ-16384/imagenet256_16384.ckpt', map_location="cpu")["state_dict"]
+        missing, unexpected = vq_model.load_state_dict(sd, strict=False)
+
+        vq_model.eval()
+        vq_model.requires_grad_(False)
+        vq_model = vq_model.to(device)
+        decode_range = (-1, 1)
+        vocab = 16384 - 1
+        # raise ValueError("TBD, check it out!")
     else:
         raise ValueError("Unsupported tokenizer!")
 
@@ -194,12 +210,15 @@ def generate_samples(config, logger):
                 x_decode = vq_model.decode_code(x,[x.shape[0],8,16,16]) # [bs, 3, H, W]
             elif config.vq == 'maskgit':
                 x_decode = vq_model.decode_tokens(x)
-                x_decode = torch.clamp(x_decode, 0.0, 1.0) # FIXME: whether to reserve this or directly normalize into (-1,1)?
+                x_decode = torch.clamp(x_decode, 0.0, 1.0)
             elif config.vq == 'sdf8':
                 x_decode = vq_model.decode_tokens(x)
                 x_decode = torch.clamp(x_decode, -1.0, 1.0)
+            elif config.vq == 'IBQ':
+                x_decode = vq_model.decode_code(x)
+                x_decode = torch.clamp(x_decode, -1.0, 1.0)
             else:
-                raise ValueError
+                raise ValueError('Please check the tokenizer type!')
             # x_decode = F.interpolate(x_decode, size=(256, 256), mode='bicubic')
             for k in range(bs):
                 # if you want to save the code.

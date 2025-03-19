@@ -4,10 +4,10 @@ set -x
 export WANDB_DISABLED=true
 export PYTHONPATH=$PYTHONPATH:/nfs/mtr/code/ddit-c2i
 
-MODEL_PATH=/nfs/mtr/code/ddit-c2i/outputs/ddit-gitmodel-linear-bs1024-m1024/03-08-142357/checkpoints/9-120000.ckpt
+MODEL_PATH=/nfs/mtr/code/ddit-c2i/outputs/ddit-gitmodel-linear-bs1024/03-01-045328/checkpoints/30-380000.ckpt
 
-CFG_SCALE=2.25
-SAMPLE_STEP=20
+CFG_SCALE=5.0
+SAMPLE_STEP=40
 EPOCH=$(echo "$MODEL_PATH" | sed -E 's#.*/([^/]+)-.*#\1#')
 
 NAME=${1:-"NOBODY"}
@@ -25,7 +25,7 @@ for GPU_ID in {0..7}; do
     backbone=dit \
     lm_vocab_size=16384 \
     data=llamaGen-token \
-    mask_vocab_size=1024 \
+    mask_vocab_size=1 \
     generation_cfg=$CFG_SCALE \
     ar_cfg=False \
     rope=2d \
@@ -35,12 +35,12 @@ for GPU_ID in {0..7}; do
     loader.eval_batch_size=1 \
     eval.mark=$NAME-e$EPOCH-s$SAMPLE_STEP-cfg$CFG_SCALE \
     eval.mode=all \
-    eval.timeline=slow-fast \
+    eval.timeline=linear \
     eval.checkpoint_path=$MODEL_PATH \
     eval.compute_generative_perplexity=False \
     eval.disable_ema=True \
-    sampling.cfg_schedule=const \
-    sampling.cfg_offset=2.0 \
+    sampling.cfg_schedule=biaslinear \
+    sampling.cfg_offset=1.1 \
     sampling.predictor=ddpm \
     sampling.steps=$SAMPLE_STEP \
     sampling.return_intermediate=0 \

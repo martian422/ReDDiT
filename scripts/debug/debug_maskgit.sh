@@ -14,14 +14,14 @@ CUDA_VISIBLE_DEVICES=0 torchrun \
     --nnodes=$WORLD_SIZE --node-rank=$RANK --nproc_per_node=1 \
     --master_port=11451 \
     main.py \
-    model=B-model \
+    model=ddit-L \
     mode=debug \
-    lm_vocab_size=1024 \
+    lm_vocab_size=16384 \
     random_noise=True \
     data=llamaGen-both \
-    data.dataset_path=/nfs/mtr/datasets/dataset_files/imagenet-10crop-256-maskgit  \
-    data.val_dataset_path=/nfs/mtr/datasets/dataset_files/imagenet-10crop-256-maskgit  \
-    data.image_token_dir=/nfs/mtr/datasets/imagenet_10crop_maskgit_code \
+    data.dataset_path=/nfs/mtr/datasets/dataset_files/imagenet-10crop-256-MaskBit  \
+    data.val_dataset_path=/nfs/mtr/datasets/dataset_files/imagenet-10crop-256-MaskBit  \
+    data.image_token_dir=/nfs/mtr/datasets/imagenet_10crop_maskb_code \
     data.image_dir=/nfs/mtr/datasets/imagenet_10crops_x256 \
     data.cache_dir=/data/dataset_collects/cache \
     lr_scheduler=cosine_decay_warmup \

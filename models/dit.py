@@ -176,7 +176,23 @@ def modulate(x, shift, scale):
 #################################################################################
 #                                  Layers                                       #
 #################################################################################
+
+class RMSNorm(torch.nn.Module):
+    def __init__(self, dim: int, eps: float = 1e-5):
+        super().__init__()
+        self.eps = eps
+        self.weight = nn.Parameter(torch.ones(dim))
+
+    def _norm(self, x):
+        return x * torch.rsqrt(torch.mean(x * x, dim=-1, keepdim=True) + self.eps)
+
+    def forward(self, x):
+        output = self._norm(x.float()).type_as(x)
+        return output * self.weight
+    
+
 class LayerNorm(nn.Module):
+    ## replaced by RMS Norm for stability.
     def __init__(self, dim):
         super().__init__()
         self.weight = nn.Parameter(torch.ones([dim]))
@@ -249,6 +265,7 @@ class LabelEmbedder(nn.Module):
         super().__init__()
         self.embedding_table = nn.Embedding(num_classes + 1, cond_size)
         self.num_classes = num_classes
+        # add a init.
         # torch.nn.init.normal_(self.embedding_table.weight, std=.02)
 
     def forward(self, labels):
@@ -351,6 +368,25 @@ class EmbeddingLayer(nn.Module):
     def forward(self, x):
         return self.embedding[x]
 
+class EmbeddingWithFrozenMasks(nn.Module):
+    def __init__(self, dim, vocab_dim, num_masks):
+        super().__init__()
+        self.num_masks = num_masks
+        self.vocab_dim = vocab_dim
+        
+        # Trainable embeddings (excluding mask tokens)
+        self.trainable_embedding = nn.Parameter(torch.empty((vocab_dim - num_masks, dim)))
+        torch.nn.init.kaiming_uniform_(self.trainable_embedding, a=math.sqrt(5))
+        
+        # Frozen embeddings (mask tokens)
+        frozen_embeds = torch.empty((num_masks, dim))
+        torch.nn.init.kaiming_uniform_(frozen_embeds, a=math.sqrt(5))
+        self.register_buffer("frozen_embedding", frozen_embeds)  # No gradients
+
+    def forward(self, x):
+        # Concatenate trainable and frozen embeddings
+        embedding = torch.cat([self.trainable_embedding, self.frozen_embedding], dim=0)
+        return embedding[x]
 
 class DDitFinalLayer(nn.Module):
     def __init__(self, hidden_size, out_channels, cond_dim):
@@ -383,6 +419,7 @@ class DIT(nn.Module, huggingface_hub.PyTorchModelHubMixin):
         self.config = config
         self.lm_vocab_size = lm_vocab_size
         self.vocab_size = vocab_size
+        self.mask_num = vocab_size - lm_vocab_size
 
         # print(f'Current state = {self.config.mode}.')
         if (self.config.mode != 'train' and self.config.mode != 'debug'):
@@ -393,6 +430,7 @@ class DIT(nn.Module, huggingface_hub.PyTorchModelHubMixin):
             print(f'Current state = {self.config.mode}.')
 
         self.vocab_embed = EmbeddingLayer(config.model.hidden_size, vocab_size)
+        # self.vocab_embed = EmbeddingWithFrozenMasks(config.model.hidden_size, vocab_size, self.mask_num)
         # self.label_embed = nn.Linear(
         #     1024, config.model.hidden_size, bias=False) # 1024->1280
         self.label_embed = LabelEmbedder(1000, config.model.cond_dim)

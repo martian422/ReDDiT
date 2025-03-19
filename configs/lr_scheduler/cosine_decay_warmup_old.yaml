@@ -1,7 +1,7 @@
 _target_: utils.CosineDecayWarmupLRScheduler
 t_in_epochs: False
-t_initial: 10000
+t_initial: 160000
 warmup_prefix: True
 warmup_lr_init: 5e-6
 warmup_t: 1000
-lr_min: 2e-5
+lr_min: 4e-5

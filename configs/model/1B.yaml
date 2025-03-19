@@ -1,7 +1,7 @@
 name: 1b
 type: ddit
 hidden_size: 1536
-cond_dim: 2
+cond_dim: 256
 length: 256
 n_blocks: 32
 n_heads: 24

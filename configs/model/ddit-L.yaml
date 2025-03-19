@@ -1,4 +1,4 @@
-name: L-dit-model
+name: ddit-L
 type: ddit
 hidden_size: 1024
 cond_dim: 128

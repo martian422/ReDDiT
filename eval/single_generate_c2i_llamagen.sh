@@ -5,10 +5,10 @@ export WANDB_DISABLED=true
 # export CUDA_LAUNCH_BLOCKING=1
 export PYTHONPATH=$PYTHONPATH:/nfs/mtr/code/ddit-c2i
 
-MODEL_PATH=/nfs/mtr/code/ddit-c2i/outputs/ddit-gitmodel-linear-bs1024-m16/03-05-113306/checkpoints/9-120000.ckpt
+MODEL_PATH=/nfs/mtr/code/ddit-c2i/outputs/ddit-gitmodel-linear-bs1024/03-01-045328/checkpoints/30-380000.ckpt
 
-CFG_SCALE=2.25
-SAMPLE_STEP=15
+CFG_SCALE=5.0
+SAMPLE_STEP=20
 EPOCH=$(echo "$MODEL_PATH" | sed -E 's#.*/([^/]+)-.*#\1#')
 
 NAME=${1:-"NOBODY"}
@@ -25,7 +25,7 @@ CUDA_VISIBLE_DEVICES=0 \
     lm_vocab_size=16384 \
     backbone=dit \
     data=llamaGen-both \
-    mask_vocab_size=16 \
+    mask_vocab_size=1 \
     generation_cfg=$CFG_SCALE \
     rope=2d \
     seed=1 \
@@ -38,7 +38,7 @@ CUDA_VISIBLE_DEVICES=0 \
     eval.checkpoint_path=$MODEL_PATH \
     eval.disable_ema=True \
     sampling.cfg_schedule=const \
-    sampling.cfg_offset=2.0 \
+    sampling.cfg_offset=1.5 \
     sampling.predictor=ddpm \
     sampling.steps=$SAMPLE_STEP \
     sampling.return_intermediate=0 \
