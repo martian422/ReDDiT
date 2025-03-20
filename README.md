@@ -1,5 +1,5 @@
-# [Spectrum-Masked Sampling for Discrete Image Diffusion](http://arxiv.org/abs/2406.07524)
-By [Tianren Ma](https://martian422.github.io), [Xiaosong Zhang](https://zhangxiaosong18.github.io)
+# [Unmasking Matters in Discrete Image Diffusion](http://arxiv.org/abs/2406.07524)
+By [Tianren Ma](https://martian422.github.io), [Boyu Yang](tbd), [Xiaosong Zhang](https://zhangxiaosong18.github.io)
 
 [![arXiv](https://img.shields.io/badge/arXiv-2406.07524-red.svg)](https://arxiv.org/abs/2406.07524)
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/18nC6q7dWq154fI1BXPLwmtnS7Zvbrv6p?usp=sharing/)

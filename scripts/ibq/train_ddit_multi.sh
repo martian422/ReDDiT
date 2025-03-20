@@ -3,7 +3,7 @@ set -x
 
 export PYTHONPATH=$PYTHONPATH:/nfs/mtr/code/ddit-c2i
 
-MASTER_ADDR="10.10.40.232"
+MASTER_ADDR="10.10.40.232" # set the main machine with this.
 MASTER_PORT=11456
 NNODES=2
 NPROC_PER_NODE=8
@@ -14,8 +14,8 @@ ulimit -n 65536
 
 export TORCH_DISTRIBUTED_DEBUG=DETAIL
 
-export GLOO_SOCKET_IFNAME=bond0.45
-export NCCL_SOCKET_IFNAME=bond0.45
+export GLOO_SOCKET_IFNAME=bond0.45 # change this to the same as master_addr (such as eth0)
+export NCCL_SOCKET_IFNAME=bond0.45 # change this to the same as master_addr (such as eth0)
 export NCCL_DEBUG=INFO  # Enable debugging logs
 
 
@@ -26,24 +26,22 @@ CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 torchrun \
     --master_addr=$MASTER_ADDR \
     --master_port=$MASTER_PORT \
     main.py \
-    model=ddit-L \
+    model=ddit-XL \
     mode=train \
     lm_vocab_size=16384 \
-    data=sdf8-both \
-    wandb.name=ddit-L-sdf8-m1-bs512 \
-    lr_scheduler=cosine_decay_warmup \
+    data=IBQ-token \
+    wandb.name=ibq-test \
+    lr_scheduler=cosine_decay_warmup_old \
     noise=loglinear \
     carry_over=True \
     rope=2d \
-    repa_loss.use_repa=True \
-    repa_loss.latent_size=32 \
-    optim.lr=3e-4 \
-    time_conditioning=True \
+    repa_loss.use_repa=False \
+    optim.lr=6e-4 \
+    time_conditioning=False \
     parameterization=subs \
     mask_vocab_size=1 \
-    model.length=1024 \
-    eval.compute_generative_perplexity=False \
+    model.length=256 \
     trainer.num_nodes=2 \
     loader.num_workers=64 \
-    loader.batch_size=32 \
-    loader.global_batch_size=512 \
+    loader.batch_size=64 \
+    loader.global_batch_size=1024 \

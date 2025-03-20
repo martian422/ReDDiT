@@ -1,10 +1,10 @@
-name: 1b
+name: ddit-XL
 type: ddit
-hidden_size: 1536
+hidden_size: 1280
 cond_dim: 256
 length: 256
-n_blocks: 32
-n_heads: 24
+n_blocks: 36
+n_heads: 20
 scale_by_sigma: True
-dropout: 0.1
+dropout: 0.0
 tie_word_embeddings: False
