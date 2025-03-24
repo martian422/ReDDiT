@@ -158,7 +158,7 @@ def generate_samples(config, logger):
             elif config.eval.timeline=='fast-slow':
                 timesteps = timesteps ** 1.25
 
-            x = model._sample_prior_XX(bs_all, model.config.model.length).to(model.device)
+            x = model._sample_prior(bs_all, model.config.model.length).to(model.device)
             # x.shape= bs 256
             # dt = (1 - eps) / num_steps
             # p_x0_cache = None

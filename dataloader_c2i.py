@@ -37,7 +37,8 @@ def get_dataset_from_token(
         try:
             image_tokens = np.load(image_token_file)
         except:
-            image_tokens = np.load('/workspace/intern/liaomingxiang/ARG-MDM/laion-coco/01889/018890002-img.npy') ## FIXME
+            raise ValueError
+            # image_tokens = np.load('/workspace/intern/liaomingxiang/ARG-MDM/laion-coco/01889/018890002-img.npy') ## FIXME
         return dict(text=example['text'], image_tokens=image_tokens.astype(np.int32))
 
     if streaming:
@@ -45,7 +46,7 @@ def get_dataset_from_token(
             preprocess_and_tokenize,
             batched=False,
             num_proc = num_proc,
-            desc='Tokenizing')
+            desc='Loading tokens')
     else:
         raise Exception
 
@@ -83,7 +84,7 @@ def get_dataset_from_image(
             preprocess_and_tokenize,
             batched=False,
             num_proc = num_proc,
-            desc='Tokenizing')
+            desc='Loading images')
     else:
         raise Exception
 
@@ -120,7 +121,7 @@ def get_dataset_separate(
             preprocess,
             batched=False,
             num_proc = num_proc,
-            desc='Tokenizing')
+            desc='Loading token and images')
     else:
         raise Exception
 
@@ -180,13 +181,21 @@ def get_dataloaders(
 
         text = [x['text'] for x in batch] 
         image_tokens = [torch.tensor(x['image_tokens'][0]) for x in batch]
-        images = [x['images'] for x in batch]
+        try:
+            images = [x['images'] for x in batch]
+            tokens = {
+            'text': text, # [1, L, 2048]
+            'image_tokens': image_tokens, # [256],
+            'images': images
+            }
+        except:
+            images = None
+            tokens = {
+            'text': text, # [1, L, 2048]
+            'image_tokens': image_tokens # [256]
+            }
 
-        tokens = {
-        'text': text, # [1, L, 2048]
-        'image_tokens': image_tokens, # [256],
-        'images': images
-        }
+        
         return tokens
 
     if skip_train:

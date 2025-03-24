@@ -1,11 +1,11 @@
 train: llamaGen
 valid: llamaGen
-type: token
+type: both
 dataset_path: /nfs/mtr/datasets/dataset_files/imagenet-adm-IBQ
 val_dataset_path: /nfs/mtr/datasets/dataset_files/imagenet-adm-IBQ
 tokenizer_name_or_path: None
 cache_dir: /data/dataset_collects/cache
 streaming: True
 image_token_dir: /nfs/mtr/datasets/imagenet_adm_IBQ_code
-image_dir: None
+image_dir: /nfs/mtr/datasets/imagenet_adm_flipped
 size: 2M

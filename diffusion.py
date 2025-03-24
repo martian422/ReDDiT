@@ -20,7 +20,6 @@ import models
 import noise_schedule
 import utils
 
-from accelerate import Accelerator
 
 from timm.data import IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD
 
@@ -47,10 +46,6 @@ def mean_flat(x):
     Take the mean over all non-batch dimensions.
     """
     return torch.mean(x, dim=list(range(1, len(x.size()))))
-
-def rand_and_exp(logits):
-    logits = logits.exp()
-    return logits
 
 def _sample_categorical(categorical_probs):
     # A simple sample function based on probability distribution
@@ -82,9 +77,10 @@ def build_mlp(hidden_size, projector_dim, z_dim):
 
 @dataclass
 class Loss:
-    loss: torch.FloatTensor
+    total_loss: torch.FloatTensor
+    ce_loss: torch.FloatTensor
+    repa_loss: torch.FloatTensor
     nlls: torch.FloatTensor
-    token_mask: torch.FloatTensor
 
 
 class NLL(torchmetrics.aggregation.MeanMetric):
@@ -109,30 +105,6 @@ class Perplexity(NLL):
          Perplexity
         """
         return torch.exp(self.mean_value / self.weight)
-
-
-class EmbeddingWithMask(nn.Module):
-    def __init__(self, embed_tokens, mask_index_range):
-        super().__init__()
-        mask_vocab_size = mask_index_range[1] - mask_index_range[0]
-        self.mask_index_range = mask_index_range
-        self.embed_tokens = copy.deepcopy(embed_tokens)
-        self.embedding_dim = self.embed_tokens.embedding_dim
-        self.embed_masktokens = nn.Embedding(mask_vocab_size, self.embedding_dim)
-    
-    def forward(self, input: Tensor) -> Tensor:
-        output = input.new_empty(
-            (*input.shape, self.embedding_dim), 
-            dtype=self.embed_tokens.weight.dtype,
-        )
-        is_mask = input[..., None].expand_as(output) >= self.mask_index_range[0]
-        output[is_mask.logical_not()] = self.embed_tokens(
-            input[input < self.mask_index_range[0]],
-        ).detach().view(-1)
-        output[is_mask] = self.embed_masktokens(
-            input[input >= self.mask_index_range[0]] - self.mask_index_range[0],
-        ).view(-1)
-        return output
 
 
 class Diffusion(L.LightningModule):
@@ -410,37 +382,7 @@ class Diffusion(L.LightningModule):
         # logits = logits - torch.logsumexp(logits, dim=-1, keepdim=True)
 
         return logits, zs_tilde
-    
-    def sample_forward_log(self, xt, labels, sigma, temp = 1.0):
-        """ddit sample, skip both zero-mask and carry-out, return log"""
 
-        sigma = self._process_sigma(sigma)
-         # equals to [bs] of zero if time_conditioning is false.
-        labels = labels.squeeze(1)
-        logits, zs_tilde = self.backbone(labels, xt, sigma) # y x t
-        logits[:, :, self.mask_index_range[0]:] += self.neg_infinity
-        logits = logits / temp
-        
-        logits = logits - torch.logsumexp(logits, dim=-1, keepdim=True)
-
-        return logits, zs_tilde
-
-    def forward_with_cfg_trial(self, xt, labels, sigma, cfg=2.0):
-        """dit"""
-
-        sigma = self._process_sigma(sigma)
-         # equals to [bs] of zero if time_conditioning is false.
-        labels_all = torch.cat([labels, 1000 * torch.ones_like(labels)])
-
-        labels_all = labels_all.squeeze(1)
-        
-        logits_all, zs_tilde = self.backbone(labels_all, xt.repeat(2,1), sigma.repeat(2)) # y x t
-
-        logits_cond, logits_uncond = torch.split(logits_all, logits_all.shape[0] // 2, dim = 0)
-
-        logits = logits_uncond + cfg * (logits_cond - logits_uncond)
-
-        return self._subs_parameterization_with_repa(logits=logits, xt=xt, zs_tilde = zs_tilde)
     
     def _d3pm_loss(self, model_output, xt, x0, t):
         dt = 1 / self.T
@@ -473,27 +415,36 @@ class Diffusion(L.LightningModule):
 
         return self.T * L_vb
 
-    def _compute_loss_XX(self, batch, prefix):
+    def _compute_loss(self, batch, prefix):
         # entrance
         input_ids, text_embeds, zs = self._preprocess_batch(batch)
-        losses = self._loss_XX(input_ids, text_embeds, zs)
-        loss = losses.loss
+        losses = self._loss(input_ids, text_embeds, zs)
 
-        self.log_dict(dict(loss=loss), on_step=False, on_epoch=True, sync_dist=True)
-        return loss
+        return losses
 
     def on_train_epoch_start(self):
         self.backbone.train()
         self.noise.train()
 
     def training_step(self, batch, batch_idx):
-        loss = self._compute_loss_XX(batch, prefix='train')
+        losses = self._compute_loss(batch, prefix='train')
+        total_loss = losses.total_loss
         self.log(name='trainer/loss',
-                         value=loss.item(),
+                         value=total_loss.item(),
                          on_step=True,
-                         on_epoch=False,
+                         on_epoch=True,
                          sync_dist=True)
-        return loss
+        self.log(name='trainer/repa_loss',
+                         value=losses.repa_loss.item(),
+                         on_step=True,
+                         on_epoch=True,
+                         sync_dist=True)
+        self.log(name='trainer/ce_loss',
+                         value=losses.ce_loss.item(),
+                         on_step=True,
+                         on_epoch=True,
+                         sync_dist=True)
+        return total_loss
 
     def on_validation_epoch_start(self):
         if self.ema:
@@ -509,7 +460,7 @@ class Diffusion(L.LightningModule):
         self.noise.eval()
 
     def validation_step(self, batch, batch_idx):
-        return self._compute_loss_XX(batch, prefix='val')
+        return self._compute_loss(batch, prefix='val')
 
     def on_validation_epoch_end(self):
         ## FIXME MDM modifying
@@ -613,7 +564,7 @@ class Diffusion(L.LightningModule):
         x_hash = torch.where(unmasked, x, mask_index)
         return x_hash
 
-    def _sample_prior_XX(self, *batch_dims):
+    def _sample_prior(self, *batch_dims):
         " TBD "
         return torch.randint(*self.mask_index_range, size=batch_dims, dtype=torch.int64)
 
@@ -1103,141 +1054,25 @@ class Diffusion(L.LightningModule):
         _xs = _sample_categorical(p_xs)
 
         return p_x0, _xs
-    
-    def _ddpm_update_v2(self, xt, labels, t, dt, p_x0=None):
-        "v1, logic changed to xt->x0->xs"
-        # assert self.config.noise.type == 'loglinear'
 
-        sigma_t, _ = self.noise(t)
-        sigma_s, _ = self.noise(t - dt)
 
-        if t.ndim > 1:
-            t = t.squeeze(-1)
-
-        move_chance_t = 1 - torch.exp(-sigma_t)
-        move_chance_s = 1 - torch.exp(-sigma_s)
-        move_chance_t = move_chance_t[:, None]
-        move_chance_s = move_chance_s[:, None]
-
-        assert move_chance_t.ndim == 3, move_chance_t.shape
-
-        if p_x0 is None:
-            # a linear cfg growth as t decrease from 1 to 0.
-            if self.config.generation_cfg > 1 :
-                if self.config.sampling.cfg_schedule == 'linear':
-                    current_cfg = (self.config.generation_cfg - 1) * (1 + dt - t[0].item()) + 1
-                elif self.config.sampling.cfg_schedule == 'const': 
-                    current_cfg = self.config.generation_cfg
-                elif self.config.sampling.cfg_schedule == 'biaslinear': 
-                    offset = self.config.sampling.cfg_offset # starting from 1.0+ seems not ideal
-                    current_cfg = (self.config.generation_cfg - offset) * (1 + dt - t[0].item()) + offset
-                # print(f'Current cfg is {current_cfg}.')
-                labels_all = torch.cat([labels, 1000 * torch.ones_like(labels)])
-                p_x0_all, _ = self.sample_forward(xt.repeat(2,1), labels_all, sigma_t.repeat(2,1))
-
-                p_x0_cond, p_x0_uncond = torch.split(p_x0_all, p_x0_all.shape[0] // 2, dim = 0)
-                p_x0_ = p_x0_uncond + current_cfg * (p_x0_cond - p_x0_uncond)
-                p_x0 = p_x0_.exp()
-            else:
-                p_x0_, _ = self.sample_forward(xt, labels, sigma_t)
-                p_x0 = p_x0_.exp()
-
-        assert move_chance_t.ndim == p_x0.ndim
-        
-        _x0_pred = _sample_categorical(p_x0)
-
-        copy_flag = (xt < self.mask_index_range[0]).to(xt.dtype)
-
-        _x0 = copy_flag * xt + (1 - copy_flag) * _x0_pred
-
-        if (t[0]-dt) > 1e-4:
-            _xs = self.q_xt(_x0, move_chance_s.squeeze(-1))
-        else:
-            _xs = _x0
-
-        return p_x0, _xs
-    
-    def _ddpm_update_v3(self, xt, labels, t, dt, p_x0=None):
-        " improved v1 by adding random noise to xs"
-        # assert self.config.noise.type == 'loglinear'
-
-        sigma_t, _ = self.noise(t)
-        sigma_s, _ = self.noise(t - dt)
-
-        if t.ndim > 1:
-            t = t.squeeze(-1)
-
-        move_chance_t = 1 - torch.exp(-sigma_t)
-        move_chance_s = 1 - torch.exp(-sigma_s)
-        move_chance_t = move_chance_t[:, None]
-        move_chance_s = move_chance_s[:, None]
-
-        assert move_chance_t.ndim == 3, move_chance_t.shape
-
-        if p_x0 is None:
-            # a linear cfg growth as t decrease from 1 to 0.
-            if self.config.generation_cfg > 1 :
-                if self.config.sampling.cfg_schedule == 'linear':
-                    current_cfg = (self.config.generation_cfg - 1) * (1 + dt - t[0].item()) + 1
-                elif self.config.sampling.cfg_schedule == 'const': 
-                    current_cfg = self.config.generation_cfg
-                elif self.config.sampling.cfg_schedule == 'biaslinear': 
-                    offset = self.config.sampling.cfg_offset # starting from 1.0+ seems not ideal
-                    current_cfg = (self.config.generation_cfg - offset) * (1 + dt - t[0].item()) + offset
-                # print(f'Current cfg is {current_cfg}.')
-                labels_all = torch.cat([labels, 1000 * torch.ones_like(labels)])
-                p_x0_all, _ = self.sample_forward(xt.repeat(2,1), labels_all, sigma_t.repeat(2,1))
-
-                p_x0_cond, p_x0_uncond = torch.split(p_x0_all, p_x0_all.shape[0] // 2, dim = 0)
-                p_x0_ = p_x0_uncond + current_cfg * (p_x0_cond - p_x0_uncond)
-                p_x0 = p_x0_.exp()
-            else:
-                p_x0_, _ = self.sample_forward(xt, labels, sigma_t)
-                p_x0 = p_x0_.exp()
-
-        assert move_chance_t.ndim == p_x0.ndim
-
-        one_hot_x = move_chance_s[:, :, 0, None] * F.one_hot(xt, num_classes=p_x0.shape[2]) * (1.0 / self.config.mask_vocab_size)#
-    
-        q_xs = p_x0 * (move_chance_t - move_chance_s)
-        q_xs[:, :, self.mask_index_range[0]:] = one_hot_x[:, :, self.mask_index_range[0]:]
-        # in v1,
-        # if a certain position of xt is mask, then _xs_p may have mask.
-        # if a certain position of xt is not mask, then _xs_p is not mask.
-        _xs_p = _sample_categorical(q_xs)
-        
-        copy_flag = (xt < self.mask_index_range[0]).to(xt.dtype)
-        # copy_flag = (_xs_p < self.mask_index_range[0]).to(xt.dtype)
-
-        # diff = copy_flag-copy_flag_1
-        # print(diff[0].min())
-        # print(diff[0].max())
-        # print(diff[0].sum())
-
-        _xs_p = copy_flag * xt + (1 - copy_flag) * _xs_p
-
-        if (t[0]-dt) > 1e-4:
-            _xs = self.q_xt_sample(_xs_p, move_chance_s.squeeze(-1))
-        else:
-            _xs = _xs_p
-
-        return p_x0, _xs
-
-    def _sample_t_XX(self, n, device):
+    def _sample_t(self, n, device):
         " get random t "
         _eps_t = torch.rand(n, device=device)
         if self.antithetic_sampling:
+            # Training trick from Kingma to avoid extreme values. See Variational diffusion models. 
             offset = torch.arange(n, device=device) / n
             _eps_t = (_eps_t / n + offset) % 1
         t = (1 - self.sampling_eps) * _eps_t + self.sampling_eps
         if self.importance_sampling:
+            # disabled.
             return self.noise.importance_sampling_transformation(t)
         return t
 
-    def _forward_pass_diffusion_XX(self, input_ids, text_embeds, zs):
+    def _forward_pass_diffusion(self, input_ids, text_embeds, zs):
         
         x0 = input_ids.clone()
-        t = self._sample_t_XX(x0.shape[0], x0.device) # bs
+        t = self._sample_t(x0.shape[0], x0.device) # bs
         if self.T > 0:
             t = (t * self.T).to(torch.int)
             t = t / self.T
@@ -1276,12 +1111,12 @@ class Diffusion(L.LightningModule):
             proj_loss=0.0
         # deal with zs here or inside subs_para
         if self.T > 0:
-            diffusion_loss = self._d3pm_loss(
-                model_output=model_output, xt=xt, x0=x0, t=t)
-            return diffusion_loss
+            raise ValueError('Not implemented')
+            # diffusion_loss = self._d3pm_loss(
+            #     model_output=model_output, xt=xt, x0=x0, t=t)
+            # return diffusion_loss
         
         # SUBS parameterization, continuous time.
-        # looks bad?
         log_p_theta = torch.gather(
             input=model_output,
             dim=-1,
@@ -1289,15 +1124,16 @@ class Diffusion(L.LightningModule):
         
         if self.change_of_variables or self.importance_sampling: 
             # Not here
-            return log_p_theta * torch.log1p(
-                - torch.exp(- self.noise.sigma_min))
+            raise ValueError('Not implemented')
+            # return log_p_theta * torch.log1p(
+            #     - torch.exp(- self.noise.sigma_min))
         
         origin_loss = - log_p_theta * (dsigma / torch.expm1(sigma))[:, None]
         return origin_loss, proj_loss
 
-    def _loss_XX(self, input_ids, text_embeds, zs):
+    def _loss(self, input_ids, text_embeds, zs):
 
-        loss, proj_loss = self._forward_pass_diffusion_XX(input_ids, text_embeds, zs)
+        loss, proj_loss = self._forward_pass_diffusion(input_ids, text_embeds, zs)
 
         loss_mask = torch.ones(input_ids.shape,dtype=torch.int,device=loss.device)
         nlls = loss * loss_mask
@@ -1305,14 +1141,16 @@ class Diffusion(L.LightningModule):
 
         batch_nll = nlls.sum()
         token_nll = batch_nll / count
-
         if self.config.repa_loss.use_repa==True:
-            loss_sum = token_nll + 0.5 * proj_loss.mean()
+            repa_loss = 0.5 * proj_loss.mean()
         else:
-            loss_sum = token_nll
+            repa_loss = 0.0
+
+        loss_sum = token_nll + repa_loss
 
         return Loss(
-            loss=loss_sum, 
+            total_loss=loss_sum, 
+            ce_loss=token_nll,
+            repa_loss=repa_loss,
             nlls=nlls, 
-            token_mask=loss_mask,
         )

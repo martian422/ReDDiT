@@ -55,11 +55,12 @@ class Rotary(torch.nn.Module):
 class Rotary2D(torch.nn.Module):
     def __init__(self, dim, base=10_000, grid = 16):
         super().__init__()
-        half_dim = dim//2
+        self.half_dim = dim//2
         # prepare the half base for sin-cos modulation.
-        inv_freq = 1.0 / (base ** (torch.arange(0, half_dim, 2)[: (half_dim // 2)].float() / half_dim)) 
+        inv_freq = 1.0 / (base ** (torch.arange(0, self.half_dim, 2)[: (self.half_dim // 2)].float() / self.half_dim)) 
         self.register_buffer('inv_freq', inv_freq)
         self.grid = grid
+        # Once calculated, cached for static seq_len (like length+2)
         self.seq_len_cached = None
         self.cos_cached = None
         self.sin_cached = None
@@ -75,11 +76,12 @@ class Rotary2D(torch.nn.Module):
             # freqs_sync = freqs_x + freqs_y
             # emb = torch.cat((freqs_sync.flatten(0,1), freqs_sync.flatten(0,1)), dim =-1).to(x.device)
             emb = torch.concat([freqs_x.flatten(0,1), freqs_y.flatten(0,1)], dim = -1)
-            self.cos_cached = emb.cos()[None, :, None, None, :].repeat(1, 1, 3, 1, 1)
-            self.sin_cached = emb.sin()[None, :, None, None, :].repeat(1, 1, 3, 1, 1)
-            # # keep identity transform for v, only rotate q and k.
-            self.cos_cached[:,:,2,:,:].fill_(1.)
-            self.sin_cached[:,:,2,:,:].fill_(0.)
+            self.cos_cached = emb.cos()
+            self.sin_cached = emb.sin()
+            # add simple encoding for t and y condition tokens
+            # removed t condition.
+            self.cos_cached = torch.cat([self.cos_cached, torch.zeros(2, self.half_dim).to(self.cos_cached.device)],dim=0)
+            self.sin_cached = torch.cat([self.sin_cached, torch.zeros(2, self.half_dim).to(self.cos_cached.device)],dim=0)
 
         return self.cos_cached, self.sin_cached
 
@@ -96,8 +98,8 @@ def apply_rotary_pos_emb_old(qkv, cos, sin):
 
 def apply_rotary_pos_emb(qkv, cos, sin, mode):
     if mode =='2d' :
-        cos = cos[0,:,0,0,:] # in 2d, [1,256,3,1,32] -> [256,32]
-        sin = sin[0,:,0,0,:]
+        cos = cos # in 2d, [256,32]
+        sin = sin
     elif mode == '1d' :
         cos = cos[0,:,0,0,:cos.shape[-1]//2] # in 1d, [1,256,3,1,64] -> [256,32]
         sin = sin[0,:,0,0,:sin.shape[-1]//2]
