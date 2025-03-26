@@ -700,8 +700,8 @@ class Diffusion(L.LightningModule):
         # delta = move_chance_t - move_chance_s
         # print(delta[0].item)
 
-        # count = _xs < self.config.lm_vocab_size
-        # print(count[0].sum())
+        count = _xs < self.config.lm_vocab_size
+        print(count[0].sum())
 
         return p_x0, _xs
     

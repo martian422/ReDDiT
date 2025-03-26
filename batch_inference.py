@@ -153,10 +153,12 @@ def generate_samples(config, logger):
             num_steps = i
             timesteps = torch.linspace(1, eps, num_steps + 1, device=model.device)
             # fake the cosine schedule during inference.
-            if config.eval.timeline == 'slow-fast':
+            if config.eval.timeline == 'cosine':
                 timesteps = (math.pi/2 * timesteps).sin()
-            elif config.eval.timeline=='fast-slow':
+            elif config.eval.timeline=='power':
                 timesteps = timesteps ** 1.25
+            elif config.eval.timeline=='arccos':
+                timesteps = torch.acos(1 - timesteps) / (math.pi * 0.5)
 
             x = model._sample_prior(bs_all, model.config.model.length).to(model.device)
             # x.shape= bs 256
@@ -186,12 +188,14 @@ def generate_samples(config, logger):
                     raise ValueError
             
             # final again for noise removal?
-            if config.eval.timeline == 'slow-fast':
+            if config.eval.timeline == 'cosine':
                 final_dt = (t_t - eps).sin()
-            elif config.eval.timeline == 'fast-slow':
+            elif config.eval.timeline == 'power':
                 final_dt = (t_t - t_s + eps) ** 1.25
             elif config.eval.timeline == 'linear':
                 final_dt = t_t - t_s + eps
+            elif config.eval.timeline == 'arccos':
+                final_dt = torch.acos(1 - t_t + t_s - eps) / (math.pi * 0.5)
             else:
                 raise ValueError
             try:
