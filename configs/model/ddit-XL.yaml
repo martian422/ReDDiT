@@ -1,10 +1,9 @@
 name: ddit-XL
 type: ddit
-hidden_size: 1280
-cond_dim: 256
+hidden_size: 1152
+cond_dim: 1152
 length: 256
-n_blocks: 36
-n_heads: 20
+n_blocks: 28
+n_heads: 16
 scale_by_sigma: True
-dropout: 0.0
-tie_word_embeddings: False
+dropout: 0.1

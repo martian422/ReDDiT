@@ -6,5 +6,4 @@ length: 256
 n_blocks: 48
 n_heads: 24
 scale_by_sigma: True
-dropout: 0.0
-tie_word_embeddings: False
+dropout: 0.1

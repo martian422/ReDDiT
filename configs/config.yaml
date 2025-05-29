@@ -11,7 +11,6 @@ seed: 1
 
 lm_vocab_size: 16384
 mask_vocab_size: 1
-ar_cfg: False
 generation_cfg: 7.5
 batch_drop_out: 0.1
 carry_over: True
@@ -20,11 +19,11 @@ rope: 2d
 vq: llamagen
 
 mode: train  # train / eval / debug
+resume_modified_scheduler: False
 diffusion: absorbing_state
 backbone: dit  # dit 
 parameterization: subs  # subs / d3pm / sedd
 time_conditioning: True
-T: 0  # 0 (continuous time) / 1000 
 random_noise: False
 
 repa_loss:
@@ -60,10 +59,7 @@ sampling:
 
 training:
   ema: 0.9999
-  antithetic_sampling: True
-  importance_sampling: False
   sampling_eps: 1e-3
-  change_of_variables: False
 
 eval:
   mark: None
@@ -71,9 +67,6 @@ eval:
   timeline: linear
   checkpoint_path: ''  # Used to evaluate a checkpoint after training.
   disable_ema: False
-  compute_generative_perplexity: False
-  perplexity_batch_size: 8
-  compute_perplexity_on_sanity: False
   generate_samples: True
 
 optim:
@@ -92,7 +85,7 @@ trainer:
   gradient_clip_val: 1.0
   precision: 'bf16'
   num_sanity_val_steps: 2
-  max_steps: 80_000_0
+  max_steps: 100_000_0
   log_every_n_steps: 10
   reload_dataloaders_every_n_epochs: 1
   limit_train_batches: 1.0   # train on full dataset, can be used to toggle quick run

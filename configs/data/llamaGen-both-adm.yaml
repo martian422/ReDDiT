@@ -1,0 +1,11 @@
+train: llamaGen
+valid: llamaGen
+type: both
+dataset_path: /nfs/mtr/datasets/dataset_files/imagenet-adm-lgf16
+val_dataset_path: /nfs/mtr/datasets/dataset_files/imagenet-adm-lgf16
+tokenizer_name_or_path: None
+cache_dir: /data/dataset_collects/cache
+streaming: True
+image_token_dir: /nfs/mtr/datasets/imagenet_adm_code_llamagenf16
+image_dir: /nfs/mtr/datasets/imagenet_adm_flipped
+size: 2M

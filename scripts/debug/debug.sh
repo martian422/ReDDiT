@@ -13,14 +13,14 @@ CUDA_VISIBLE_DEVICES=0 torchrun \
     --nnodes=$WORLD_SIZE --node-rank=$RANK --nproc_per_node=1 \
     --master_port=11451 \
     main.py \
-    model=ddit-L \
+    model=ddit-XL \
     mode=debug \
     data=llamaGen-both \
     lr_scheduler=cosine_decay_warmup \
     noise=loglinear \
     rope=2d \
     carry_over=True \
-    repa_loss.use_repa=False \
+    repa_loss.use_repa=True \
     repa_loss.latent_size=16 \
     optim.lr=5e-4 \
     parameterization=subs \

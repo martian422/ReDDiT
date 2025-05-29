@@ -1,0 +1,9 @@
+name: ddit-XL-old
+type: ddit
+hidden_size: 1152
+cond_dim: 128
+length: 256
+n_blocks: 28
+n_heads: 16
+scale_by_sigma: True
+dropout: 0.1

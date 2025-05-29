@@ -1,0 +1,11 @@
+train: llamaGen
+valid: llamaGen
+type: both
+dataset_path: /nfs/mtr/datasets/dataset_files/imagenet-10crop-f8
+val_dataset_path: /nfs/mtr/datasets/dataset_files/imagenet-10crop-f8
+tokenizer_name_or_path: None
+cache_dir: /data/dataset_collects/cache
+streaming: True
+image_token_dir: /nfs/mtr/datasets/imagenet_10crop_code_llamagenf8
+image_dir: /nfs/mtr/datasets/imagenet_10crops_x256
+size: 10M

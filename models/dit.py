@@ -279,7 +279,7 @@ class LabelEmbedder(nn.Module):
 
 
 class DDiTBlock(nn.Module):
-    def __init__(self, dim, n_heads, cond_dim, mlp_ratio=4, dropout=0.1, position_enc='1d'):
+    def __init__(self, dim, n_heads, cond_dim, mlp_ratio=4, dropout=0.0, position_enc='1d'):
         super().__init__()
         self.n_heads = n_heads
 
@@ -457,8 +457,10 @@ class DIT(nn.Module, huggingface_hub.PyTorchModelHubMixin):
             self.projectors = nn.ModuleList([
                 build_mlp(self.config.model.hidden_size, self.config.repa_loss.projector_dim, self.config.repa_loss.z_dim)])
         else:
-            print('RepA disabled, skip loading.')
-            self.projectors = None
+            self.projectors = nn.ModuleList([
+                build_mlp(self.config.model.hidden_size, self.config.repa_loss.projector_dim, self.config.repa_loss.z_dim)])
+            print('RepA disabled, pay attention to this.')
+            # self.projectors = None
 
         self.output_layer = DDitFinalLayer(
             config.model.hidden_size,
@@ -477,7 +479,7 @@ class DIT(nn.Module, huggingface_hub.PyTorchModelHubMixin):
             x = self.vocab_embed(indices)  # [bs, psz**2, hidden_size]
             y = self.label_embed(labels)
             t = self.sigma_map(sigma)
-            c = F.silu(t + y)
+            c = t + y
             # c = t + y 
             rotary_cos_sin = self.rotary_emb(x) # tuple of 2*[1,256,3,1,64]
             N, T, D = x.shape

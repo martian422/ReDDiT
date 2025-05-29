@@ -51,6 +51,7 @@ def generate_samples(config, logger):
     if local_rank == 0:
         os.makedirs(save_path_images, exist_ok=True)
         # os.makedirs(save_path_codes, exist_ok=True)
+
     if config.vq == 'llamagen':
         from tokenizer.llamagen_vq import VQ_models
 
@@ -59,7 +60,7 @@ def generate_samples(config, logger):
             codebook_embed_dim=8)
         vq_model.to(device)
         vq_model.eval()
-        checkpoint = torch.load(config.repa_loss.vq_ckpt, map_location="cpu")
+        checkpoint = torch.load('/nfs/mtr/pretrained/vq_ds16_c2i.pt', map_location="cpu")
         vq_model.load_state_dict(checkpoint["model"])
 
         del checkpoint
@@ -67,7 +68,27 @@ def generate_samples(config, logger):
         for p in vq_model.parameters():
             p.requires_grad = False
 
-        print(f"tokenizer tokenizer is loaded")
+        print(f"tokenizer llamagen-f16 is loaded")
+        vocab = 16384 - 1
+        decode_range = (-1, 1)
+
+    elif config.vq == 'llamagenf8':
+        from tokenizer.llamagen_vq import VQ_models
+
+        vq_model = VQ_models["VQ-8"](
+            codebook_size=16384,
+            codebook_embed_dim=8)
+        vq_model.to(device)
+        vq_model.eval()
+        checkpoint = torch.load('/nfs/mtr/pretrained/vq_ds8_c2i.pt', map_location="cpu")
+        vq_model.load_state_dict(checkpoint["model"])
+
+        del checkpoint
+
+        for p in vq_model.parameters():
+            p.requires_grad = False
+
+        print(f"tokenizer llamagen-f8 is loaded")
         vocab = 16384 - 1
         decode_range = (-1, 1)
 
@@ -97,22 +118,27 @@ def generate_samples(config, logger):
         vq_model = vq_model.to(device)
         decode_range = (-1, 1)
         vocab = 16384 - 1
+
+        print(f"tokenizer sd-f8 is loaded")
         # raise ValueError("TBD, check it out!")
 
     elif config.vq == 'IBQ':
         from omegaconf import OmegaConf
         from tokenizer.IBQ.models.ibqgan import IBQ
-        config = OmegaConf.load('/nfs/mtr/pretrained/IBQ-16384/imagenet_ibqgan_16384.yaml')
-        vq_model = IBQ(**config.model.init_args)
+        ibq_config = OmegaConf.load('/nfs/mtr/pretrained/IBQ-16384/imagenet_ibqgan_16384.yaml')
+        vq_model = IBQ(**ibq_config.model.init_args)
 
-        sd = torch.load('/nfs/mtr/pretrained/IBQ-16384/imagenet256_16384.ckpt', map_location="cpu")["state_dict"]
-        missing, unexpected = vq_model.load_state_dict(sd, strict=False)
+        ckpt = torch.load('/nfs/mtr/pretrained/IBQ-16384/imagenet256_16384.ckpt', map_location="cpu")["state_dict"]
+        missing, unexpected = vq_model.load_state_dict(ckpt, strict=False)
 
         vq_model.eval()
         vq_model.requires_grad_(False)
         vq_model = vq_model.to(device)
         decode_range = (-1, 1)
         vocab = 16384 - 1
+        del ckpt
+
+        print(f"tokenizer IBQ-f16 is loaded")
         # raise ValueError("TBD, check it out!")
     else:
         raise ValueError("Unsupported tokenizer!")
@@ -212,6 +238,8 @@ def generate_samples(config, logger):
                 print(f'{class_num} has mistakes, corrected. Pay attention to this.')
             if config.vq == 'llamagen':
                 x_decode = vq_model.decode_code(x,[x.shape[0],8,16,16]) # [bs, 3, H, W]
+            elif config.vq == 'llamagenf8':
+                x_decode = vq_model.decode_code(x,[x.shape[0],8,32,32]) # [bs, 3, H, W]
             elif config.vq == 'maskgit':
                 x_decode = vq_model.decode_tokens(x)
                 x_decode = torch.clamp(x_decode, 0.0, 1.0)

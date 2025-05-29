@@ -135,6 +135,7 @@ def _train(config, logger):
         for p in dino_encoder.parameters():
             p.requires_grad = False
         dino_encoder.eval()
+        print('DINOv2 encoder is loaded')
 
         if config.data.type != 'both':
 

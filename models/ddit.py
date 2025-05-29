@@ -149,7 +149,7 @@ def residual_linear(x, W, x_skip, residual_scale):
         alpha=residual_scale).view(*x.shape[:-1], dim_out)
 
 class Mlp(nn.Module):
-    def __init__(self, in_features, out_features, act_layer=nn.GELU, drop=0.):
+    def __init__(self, in_features, out_features, act_layer=nn.GELU, drop=0.05):
         super().__init__()
         hidden_features = 4 * in_features
         self.fc1 = nn.Linear(in_features, hidden_features)
@@ -230,13 +230,13 @@ class LabelEmbedder(nn.Module):
         
 
 #################################################################################
-#                                 Core d-DIT Model                                    #
+#                                 Core d-DIT Model                              #
 #################################################################################
 
 
 class DDiTBlock(nn.Module):
     "Removed adaLN"
-    def __init__(self, dim, n_heads, dropout=0.0, position_enc='1d'):
+    def __init__(self, dim, n_heads, dropout=0.1, position_enc='1d'):
         super().__init__()
         self.n_heads = n_heads
 
@@ -381,8 +381,11 @@ class DIT(nn.Module, huggingface_hub.PyTorchModelHubMixin):
             self.projectors = nn.ModuleList([
                 build_mlp(self.config.model.hidden_size, self.config.repa_loss.projector_dim, self.config.repa_loss.z_dim)])
         else:
-            print('RepA disabled, skip loading.')
-            self.projectors = None
+            self.projectors = nn.ModuleList([
+                build_mlp(self.config.model.hidden_size, self.config.repa_loss.projector_dim, self.config.repa_loss.z_dim)])
+            print('RepA disabled or abandoned, please notice it.')
+            # in case of resume training, just remain.
+            # self.projectors = None
 
         self.head = FinalLayer(self.hidden_size, vocab_size)
         self.scale_by_sigma = config.model.scale_by_sigma
@@ -391,8 +394,8 @@ class DIT(nn.Module, huggingface_hub.PyTorchModelHubMixin):
         with torch.amp.autocast('cuda',dtype=torch.bfloat16):
             token_embeds = self.vocab_embed(indices)  # [bs, psz**2, hidden_size]
             y = self.label_embed(labels).unsqueeze(1)
-            t = self.sigma_map(sigma).unsqueeze(1)
-            x = torch.cat([token_embeds, t, y], dim=1)
+            # t = self.sigma_map(sigma).unsqueeze(1)
+            x = torch.cat([token_embeds, y], dim=1)
             # c = t + y 
             rotary_cos_sin = self.rotary_emb(x) # tuple of 2*[1,256,3,1,64]
             N, _, D = x.shape

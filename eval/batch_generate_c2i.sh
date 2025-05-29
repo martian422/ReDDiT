@@ -27,7 +27,6 @@ for GPU_ID in {0..7}; do
     data=llamaGen-token \
     mask_vocab_size=1 \
     generation_cfg=$CFG_SCALE \
-    ar_cfg=False \
     rope=1d \
     seed=$GPU_ID \
     noise=cosine \

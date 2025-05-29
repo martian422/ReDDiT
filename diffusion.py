@@ -122,9 +122,6 @@ class Diffusion(L.LightningModule):
         self.mask_index_range = (self.config.lm_vocab_size, self.vocab_size)
         self.sampler = self.config.sampling.predictor
 
-        self.antithetic_sampling = self.config.training.antithetic_sampling
-        self.importance_sampling = self.config.training.importance_sampling
-        self.change_of_variables = self.config.training.change_of_variables
         self.parameterization = self.config.parameterization
 
         self.dino = dino_encoder
@@ -136,10 +133,9 @@ class Diffusion(L.LightningModule):
 
         # self.embed_tokens = EmbeddingWithMask(
         #     self.input_embedding, self.mask_index_range).bfloat16()
-        self.backbone = models.ddit.DIT(
+        self.backbone = models.dit.DIT(
             self.config, lm_vocab_size=self.config.lm_vocab_size, vocab_size=self.vocab_size).bfloat16()
 
-        self.T = self.config.T
         self.seq_len = self.config.model.length
 
         self.softplus = torch.nn.Softplus()
@@ -163,12 +159,6 @@ class Diffusion(L.LightningModule):
         self.neg_infinity = -1000000.0
         self.fast_forward_epochs = None
         self.fast_forward_batches = None
-        self._validate_configuration()
-
-    def _validate_configuration(self):
-        assert not (self.change_of_variables
-                                and self.importance_sampling)
-        assert self.parameterization == 'subs'
 
     def on_load_checkpoint(self, checkpoint):
         if self.ema:
@@ -182,7 +172,7 @@ class Diffusion(L.LightningModule):
                 'current']['completed']
 
     def on_save_checkpoint(self, checkpoint):
-        keys_to_remove = [key for key in checkpoint['state_dict'].keys() if (key.startswith('lm') or key.startswith('vq') or key.startswith('dino'))]
+        keys_to_remove = [key for key in checkpoint['state_dict'].keys() if (key.startswith('lm') or key.startswith('vq'))]
         for key in keys_to_remove:
             del checkpoint['state_dict'][key]
         if self.ema:
@@ -255,7 +245,7 @@ class Diffusion(L.LightningModule):
                     num_workers=self.config.loader.num_workers,
                     pin_memory=self.config.loader.pin_memory,
                     sampler=dl_sampler,
-                    shuffle=False,
+                    shuffle=False, ##Note that the shuffle is still turned on in dl_sampler by default.
                     persistent_workers=True))
         self.trainer.fit_loop._combined_loader.flattened = updated_dls
 
@@ -383,37 +373,6 @@ class Diffusion(L.LightningModule):
 
         return logits, zs_tilde
 
-    
-    def _d3pm_loss(self, model_output, xt, x0, t):
-        dt = 1 / self.T
-
-        if torch.is_tensor(t):
-            t = t[:, None]
-            assert t.ndim == 2
-            t = t.clamp(0., 1. - 1e-4)
-        alpha_t = 1 - t + torch.zeros_like(xt)
-        alpha_s = 1 - (t - dt) + torch.zeros_like(xt)
-
-        log_x_theta_at_x0 = torch.gather(
-            model_output, -1, x0[:, :, None]).squeeze(-1)
-        log_x_theta_at_m = model_output[:, :, self.mask_index_range[0]:]
-        x_theta_at_m = log_x_theta_at_m.exp().sum(dim=-1)
-        
-        term_1_coef = dt / t
-        term_1_log_nr = torch.log(alpha_t * x_theta_at_m / t + 1)
-        term_1_log_dr = log_x_theta_at_x0
-        
-        term_2_coef = 1 - dt / t
-        term_2_log_nr = term_1_log_nr
-        term_2_log_dr = torch.log(alpha_s * x_theta_at_m / (t - dt) + 1)
-
-        L_vb_masked = (
-            term_1_coef * (term_1_log_nr - term_1_log_dr)
-            + term_2_coef * (term_2_log_nr - term_2_log_dr))
-
-        L_vb = L_vb_masked * (xt >= self.mask_index_range[0])
-
-        return self.T * L_vb
 
     def _compute_loss(self, batch, prefix):
         # entrance
@@ -421,8 +380,14 @@ class Diffusion(L.LightningModule):
         losses = self._loss(input_ids, text_embeds, zs)
 
         return losses
-
+    
     def on_train_epoch_start(self):
+        if self.config.resume_modified_scheduler:
+            print("Resetting LR to 5e-5 on train epoch start")
+            for param_group in self.trainer.optimizers[0].param_groups:
+                param_group['lr'] = 5e-5 # write your resume target here.
+            # lr = self.trainer.optimizers[0].param_groups[0]['lr']
+            # print(f"[Epoch {self.current_epoch}] LR in use: {lr:.2e}")
         self.backbone.train()
         self.noise.train()
 
@@ -446,58 +411,28 @@ class Diffusion(L.LightningModule):
                          sync_dist=True)
         return total_loss
 
-    def on_validation_epoch_start(self):
-        if self.ema:
-            self.ema.store(itertools.chain(
-                # self.embed_tokens.parameters(),
-                self.backbone.parameters(),
-                self.noise.parameters()))
-            self.ema.copy_to(itertools.chain(
-                # self.embed_tokens.parameters(),
-                self.backbone.parameters(),
-                self.noise.parameters()))
-        self.backbone.eval()
-        self.noise.eval()
+    
+    def on_train_epoch_end(self):
+    # Access the logger
+        metrics = self.trainer.callback_metrics
 
-    def validation_step(self, batch, batch_idx):
-        return self._compute_loss(batch, prefix='val')
+        # Get the loss values (ensure keys match your logged names)
+        total_loss = metrics.get("trainer/loss")
+        repa_loss = metrics.get("trainer/repa_loss")
+        ce_loss = metrics.get("trainer/ce_loss")
 
-    def on_validation_epoch_end(self):
-        ## FIXME MDM modifying
-        if ((self.config.eval.compute_perplexity_on_sanity
-                 or not self.trainer.sanity_checking)
-                 and self.config.eval.generate_samples
-                 and not self.parameterization == 'ar'):
-            # TODO(justin): implement sampling and kv cache for AR
-            samples, text_samples = None, None
-            for _ in range(
-                self.config.sampling.num_sample_batches):
-                samples = self._sample()
-                # Decode the samples to be re-tokenized by eval model
-                text_samples = self.tokenizer.batch_decode(samples)
-                if self.config.eval.compute_generative_perplexity:
-                    self.compute_generative_perplexity(text_samples)
-            if self.trainer.global_rank == 0 and hasattr(
-                self.trainer.logger, 'log_table'):
-                # Log the last generated samples
-                text_samples = text_samples[
-                    : self.config.sampling.num_sample_log]
-                self.trainer.logger.log_table(
-                    key=f'samples@global_step{self.global_step}',
-                    columns=['Generated Samples'],
-                    data=[[s] for s in text_samples])
-        if self.ema:
-            self.ema.restore(
-                itertools.chain(
-                    # self.embed_tokens.parameters(),
-                    self.backbone.parameters(),
-                    self.noise.parameters()))
+        # Format the output
+        log_str = (f"Epoch {self.current_epoch} - "
+                f"Total Loss: {total_loss:.4f}, "
+                f"Repa Loss: {repa_loss:.4f}, "
+                f"CE Loss: {ce_loss:.4f}\n")
+
+        # Append to a text file
+        with open("training_losses.txt", "a") as f:
+            f.write(log_str)
 
     def configure_optimizers(self):
-        # TODO(yair): Lightning currently giving this warning when using `fp16`:
-        #  "Detected call of `lr_scheduler.step()` before `optimizer.step()`. "
-        #  Not clear if this is a problem or not.
-        #  See: https://github.com/Lightning-AI/pytorch-lightning/issues/5558
+
         optimizer = torch.optim.AdamW(
             itertools.chain(
                 # self.embed_tokens.parameters(),
@@ -509,15 +444,20 @@ class Diffusion(L.LightningModule):
             eps=self.config.optim.eps,
             weight_decay=self.config.optim.weight_decay)
 
-        scheduler = hydra.utils.instantiate(
-            self.config.lr_scheduler, optimizer=optimizer)
+        scheduler = hydra.utils.instantiate(self.config.lr_scheduler, optimizer=optimizer)
+
         scheduler_dict = {
             'scheduler': scheduler,
             'interval': 'step',
             'monitor': 'val/loss',
             'name': 'trainer/lr',
         }
-        return [optimizer], [scheduler_dict]
+
+        if self.config.resume_modified_scheduler:
+            # if you want to totally reset the lr to const during debugging, use this.
+            return [optimizer]
+        else:
+            return [optimizer], [scheduler_dict]
 
     def q_xt(self, x, move_chance):
         """Computes the noisy sample xt.
@@ -572,7 +512,7 @@ class Diffusion(L.LightningModule):
     @torch.no_grad()
     ## trying to replicate the linear growth of cfg as MUSE did.
     def _ddpm_update_v0(self, xt, labels, t, dt, p_x0=None):
-        "worse than 1!"
+        "worse than v1, abandoned!"
 
         # assert self.config.noise.type == 'loglinear'
         # non-linear cannot be accelerated using this function
@@ -623,7 +563,7 @@ class Diffusion(L.LightningModule):
         return p_x0, copy_flag * xt + (1 - copy_flag) * _x
     
     def _ddpm_update_v1(self, xt, labels, t, dt, p_x0=None):
-        "removed zero-mask using sample_forward, relies on probabilities."
+        "removed zero-mask using sample_forward, relies on probabilities. This is our default sampler"
         # assert self.config.noise.type == 'loglinear'
 
         sigma_t, _ = self.noise(t)
@@ -642,7 +582,7 @@ class Diffusion(L.LightningModule):
         k_s = move_chance_s[0]
 
         # https://github.com/bytedance/1d-tokenizer/blob/main/modeling/maskgit.py#L157
-        # ann_temp = (0.4 + 0.9 * t)[0].item() # do not add annealing in llamagen settings!
+        # ann_temp = (0.5 + t)[0].item() # do not add annealing in llamagen settings!
         ann_temp = 1.0
         # gumble_coeff = 1.2 * t[0].item() + 0.1
         # gumble_coeff = 0.0
@@ -669,19 +609,10 @@ class Diffusion(L.LightningModule):
                 # doing exp() after cfg can lower the FID by ~1.
                 # logits_cfg = add_gumbel_noise(logits_cfg, gumble_coeff)
                 p_x0 = F.softmax(logits_cfg, dim=-1)
-                # normalization may slightly hurt the FID (<0.05), but IS, sFID gets better. It also fits the MDLM theory.
-                # sum_tensor = p_x0_.sum(dim=-1, keepdim=True) 
-                # p_x0 = p_x0_ / sum_tensor
             else:
                 logits_, _ = self.sample_forward(xt, labels, sigma_t)
                 # logits_with_noise = add_gumbel_noise(logits_, gumble_coeff)
                 p_x0 = F.softmax(logits_, dim=-1)
-        # breakpoint()
-        # assert move_chance_t.ndim == p_x0.ndim
-        # breakpoint()
-        # one_hot_x = k_s * F.one_hot(xt, num_classes=p_x0.shape[2]) * (1.0 / self.config.mask_vocab_size) #
-        # one_hot_x = k_s * F.one_hot(xt, num_classes=p_x0.shape[2]) 
-        # p_mask = k_s / self.config.mask_vocab_size # when the mask_vocab is too large, this move makes it hard to sample masks.
         p_mask = k_s # no div, carry out the first, then use hash to make colorful noise
     
         q_xs = p_x0 * (k_t - k_s) / k_t
@@ -697,16 +628,10 @@ class Diffusion(L.LightningModule):
 
         _xs = copy_flag * xt + (1 - copy_flag) * _x
 
-        # delta = move_chance_t - move_chance_s
-        # print(delta[0].item)
-
-        count = _xs < self.config.lm_vocab_size
-        print(count[0].sum())
-
         return p_x0, _xs
     
     def _ddpm_update_final(self, xt, labels, t, dt, p_x0=None):
-        "final update to correct bad tokens."
+        "final update to ensure that all tokens are decoded."
         # assert self.config.noise.type == 'loglinear'
 
         sigma_t, _ = self.noise(t)
@@ -821,7 +746,7 @@ class Diffusion(L.LightningModule):
         return logits_x0, _xs
     
     def _maskgit_update(self, xt, labels, t, dt, logits_x0=None):
-        "maskgit sample method, relies on logits. using arXiv:2409.02908 new gumbel, merged as default"
+        "maskgit sample method, relies on logits. using arXiv:2409.02908 new gumbel, merged as default maskgit method."
         # assert self.config.noise.type == 'loglinear'
         device = xt.device
         sigma_t, _ = self.noise(t)
@@ -835,7 +760,8 @@ class Diffusion(L.LightningModule):
         if t.ndim > 1:
             t = t.squeeze(-1)
 
-        ann_temp = (0.5 + 0.8 * t)[0].item()
+        # ann_temp = (0.5 + 0.8 * t)[0].item()
+        ann_temp = 1.0
 
         if logits_x0 is None:
             # a linear cfg growth as t decrease from 1 to 0.
@@ -853,6 +779,7 @@ class Diffusion(L.LightningModule):
 
                 logits_cond, logits_uncond = torch.split(logits_all, logits_all.shape[0] // 2, dim = 0)
                 logits_x0 = logits_uncond + current_cfg * (logits_cond - logits_uncond)
+                p_x0 = F.softmax(logits_x0, dim=-1)
 
             else:
                 logits_x0, _ = self.sample_forward_raw(xt, labels, sigma_t)
@@ -861,12 +788,13 @@ class Diffusion(L.LightningModule):
         is_mask = (xt > (self.config.lm_vocab_size -1))
 
         ratio = t[0].item()
-        annealed_temp = 2.0 * ratio + 0.1 # 4.5 for maskgit tokenizer
+        annealed_temp = 1.0 * ratio + 0.5 # 4.5 for maskgit tokenizer
         # sample_temp = 1.0
 
         logits_with_noise = add_gumbel_noise(logits_x0, annealed_temp)
 
-        x0_pred = logits_with_noise.argmax(dim=-1)
+        # x0_pred = logits_with_noise.argmax(dim=-1)
+        x0_pred = _sample_categorical(p_x0)
         x0_pred_logits = torch.squeeze(
                 torch.gather(logits_x0, dim=-1, index=torch.unsqueeze(x0_pred, -1)), -1)
         x0_pred = torch.where(is_mask, x0_pred, xt) # paste the newly decoded tokens to xt, get _x0
@@ -1059,36 +987,20 @@ class Diffusion(L.LightningModule):
     def _sample_t(self, n, device):
         " get random t "
         _eps_t = torch.rand(n, device=device)
-        if self.antithetic_sampling:
-            # Training trick from Kingma to avoid extreme values. See Variational diffusion models. 
-            offset = torch.arange(n, device=device) / n
-            _eps_t = (_eps_t / n + offset) % 1
+        # Training trick from Kingma to avoid extreme values. See Variational diffusion models. 
+        offset = torch.arange(n, device=device) / n
+        _eps_t = (_eps_t / n + offset) % 1
         t = (1 - self.sampling_eps) * _eps_t + self.sampling_eps
-        if self.importance_sampling:
-            # disabled.
-            return self.noise.importance_sampling_transformation(t)
         return t
 
     def _forward_pass_diffusion(self, input_ids, text_embeds, zs):
         
         x0 = input_ids.clone()
         t = self._sample_t(x0.shape[0], x0.device) # bs
-        if self.T > 0:
-            t = (t * self.T).to(torch.int)
-            t = t / self.T
-            # t \in {1/T, 2/T, ..., 1}
-            t += (1 / self.T)
 
-        if self.change_of_variables:
-            unet_conditioning = t[:, None]
-            f_T = torch.log1p(- torch.exp(- self.noise.sigma_max))
-            f_0 = torch.log1p(- torch.exp(- self.noise.sigma_min))
-            move_chance = torch.exp(f_0 + t * (f_T - f_0))
-            move_chance = move_chance[:, None]
-        else:
-            sigma, dsigma = self.noise(t)
-            unet_conditioning = sigma[:, None]
-            move_chance = 1 - torch.exp(-sigma[:, None])
+        sigma, dsigma = self.noise(t)
+        unet_conditioning = sigma[:, None]
+        move_chance = 1 - torch.exp(-sigma[:, None])
 
         xt = self.q_xt(x0, move_chance) # noised input_ids
 
@@ -1110,11 +1022,6 @@ class Diffusion(L.LightningModule):
         else:
             proj_loss=0.0
         # deal with zs here or inside subs_para
-        if self.T > 0:
-            raise ValueError('Not implemented')
-            # diffusion_loss = self._d3pm_loss(
-            #     model_output=model_output, xt=xt, x0=x0, t=t)
-            # return diffusion_loss
         
         # SUBS parameterization, continuous time.
         log_p_theta = torch.gather(
@@ -1122,13 +1029,12 @@ class Diffusion(L.LightningModule):
             dim=-1,
             index=x0[:, :, None]).squeeze(-1)
         
-        if self.change_of_variables or self.importance_sampling: 
-            # Not here
-            raise ValueError('Not implemented')
-            # return log_p_theta * torch.log1p(
-            #     - torch.exp(- self.noise.sigma_min))
-        
-        origin_loss = - log_p_theta * (dsigma / torch.expm1(sigma))[:, None]
+        origin_loss = - log_p_theta * (dsigma / (torch.expm1(sigma) + 0.2))[:, None] 
+        # 0.2 ( = 1 / 5.0 ) is a min-SNR-5 trick to help convergence for continuous time.
+        # https://arxiv.org/pdf/2303.09556
+        # origin_loss = - log_p_theta # without re-weighting, this is a classic MLM loss.
+        # We observed that MLM loss helps convergence and performance at first, but then gradually makes the output not ideal for MDLM sampling.
+
         return origin_loss, proj_loss
 
     def _loss(self, input_ids, text_embeds, zs):
@@ -1151,6 +1057,6 @@ class Diffusion(L.LightningModule):
         return Loss(
             total_loss=loss_sum, 
             ce_loss=token_nll,
-            repa_loss=repa_loss,
+            repa_loss=torch.tensor([repa_loss]),
             nlls=nlls, 
         )

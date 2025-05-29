@@ -1,0 +1,11 @@
+train: llamaGen
+valid: llamaGen
+type: both
+dataset_path: /nfs/mtr/datasets/dataset_files/imagenet-10crop-256-IBQ
+val_dataset_path: /nfs/mtr/datasets/dataset_files/imagenet-10crop-256-IBQ
+tokenizer_name_or_path: None
+cache_dir: /data/dataset_collects/cache
+streaming: True
+image_token_dir: /nfs/mtr/datasets/imagenet_10crops_IBQ_code
+image_dir: /nfs/mtr/datasets/imagenet_10crops_x256
+size: 2M
