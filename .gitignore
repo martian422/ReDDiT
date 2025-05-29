@@ -2,3 +2,6 @@ __pycache__
 outputs
 *.ckpt
 *.pb
+*.npz
+notes/results.ipynb
+scripts/llamagen/*
