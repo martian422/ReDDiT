@@ -36,7 +36,6 @@ for GPU_ID in {0..7}; do
     eval.mode=all \
     eval.timeline=linear \
     eval.checkpoint_path=$MODEL_PATH \
-    eval.compute_generative_perplexity=False \
     eval.disable_ema=True \
     sampling.cfg_schedule=const \
     sampling.cfg_offset=2.0 \

@@ -133,7 +133,7 @@ class Diffusion(L.LightningModule):
 
         # self.embed_tokens = EmbeddingWithMask(
         #     self.input_embedding, self.mask_index_range).bfloat16()
-        self.backbone = models.dit.DIT(
+        self.backbone = models.ddit.DIT(
             self.config, lm_vocab_size=self.config.lm_vocab_size, vocab_size=self.vocab_size).bfloat16()
 
         self.seq_len = self.config.model.length

@@ -13,7 +13,7 @@ In this repo, we release:
 
 We will release the weights for further study. Please star to stay tuned.
 
-By the way, we find it **more useful** on text-to-image generation tasks, which will be updated and discussed later. If you use our rehashing noise design, please cite our work, thanks!
+By the way, we find that expanding mask indices **more useful** on text-to-image generation training, which will be updated and discussed later. If you use our rehashing noise design, please cite our work, thanks!
 
 ### Acknowledgements
 This repository was built off of [MDLM](https://github.com/kuleshov-group/mdlm).
