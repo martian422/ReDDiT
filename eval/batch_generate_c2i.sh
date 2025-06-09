@@ -30,7 +30,7 @@ for GPU_ID in {0..7}; do
     rope=1d \
     seed=$GPU_ID \
     noise=cosine \
-    time_conditioning=True \
+    time_conditioning=False \
     loader.eval_batch_size=1 \
     eval.mark=$NAME-e$EPOCH-s$SAMPLE_STEP-cfg$CFG_SCALE \
     eval.mode=all \

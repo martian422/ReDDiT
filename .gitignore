@@ -5,3 +5,4 @@ outputs
 *.npz
 notes/results.ipynb
 scripts/llamagen/*
+eval/*

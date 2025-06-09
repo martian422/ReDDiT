@@ -198,7 +198,8 @@ def generate_samples(config, logger):
                 if model.sampler == 'ddpm':
                     _, x_next = model._ddpm_update_v1(
                         x, labels, t_t, t_t - t_s, p_x0=None)
-                    x = model.q_xt_hash(x_next)
+                    # x = model.q_xt_hash(x_next)
+                    x = x_next
                     t_t = t_s
                 elif model.sampler == 'maskgit':
                     _, x_next = model._maskgit_update(
