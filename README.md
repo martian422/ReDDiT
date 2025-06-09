@@ -1,4 +1,4 @@
-# [Rehashing Noise For Discrete Visual Generation](http://arxiv.org/abs/2406.07524)
+# [Rehashing Noise For Discrete Visual Generation](http://arxiv.org/abs/2505.19656)
 
 We introduce *ReDDiT*, a **Re**hashing noise Framework for **D**iscrete **Di**ffusion **T**ransformer.
 
