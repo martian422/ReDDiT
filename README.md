@@ -11,10 +11,6 @@ In this repo, we release:
   1. Predict-remask sampler for MaskGIT-style methods (as the baseline).
   2. Discrete Flow Matching sampler (requires more steps for optimal performance).
 
-We will release the weights for further study. Please star to stay tuned.
-
-By the way, we noticed that expanding mask indices **more useful** on text-to-image generation training, which will be updated and discussed later. If you're already trying [MMaDA](https://github.com/Gen-Verse/MMaDA), which is a great work with extensive text-to-image training, try to replace its *t2i_generate* sampler with ours, which works better and more efficiently!
-
 If you find our rehashing noise or proposed sampler helpful, please consider cite our work, thanks!
 
 ### Acknowledgements
